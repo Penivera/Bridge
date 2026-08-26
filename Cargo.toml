@@ -2,6 +2,24 @@
 name = "bridge"
 version = "0.1.0"
 edition = "2024"
+default-run = "bridge"
+
+[workspace]
+members = ["proxy"]
+resolver = "2"
+
+[workspace.dependencies]
+proxy = { path = "proxy" }
+hyper = { version = "1.11.0", features = ["full"] }
+tokio = { version = "1.53.1", features = ["full"] }
+tracing = "0.1.44"
 
 [dependencies]
-proxy = { path = "proxy" }
+proxy = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+
+
+[[bin]]
+name = "bridge"
+path = "src/main.rs"
