@@ -16,6 +16,7 @@ tracing = "0.1.44"
 
 [dependencies]
 proxy = { workspace = true }
+smart-default = "0.7.1"
 tokio = { workspace = true }
 tracing = { workspace = true }
 
