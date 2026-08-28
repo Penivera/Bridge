@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-hyper.workspace = true
+registry.workspace = true
+hyper = { version = "1.11.0", features = ["full"] }
+hyper-util = { version = "0.1", features = ["full"] }
+http-body-util = "0.1"
 tokio.workspace = true
 tracing.workspace = true
+serde.workspace = true

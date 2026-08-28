@@ -1,0 +1,29 @@
+enable_telemetry = false
+
+[sentry]
+dsn = ""
+environment = "development"
+sample_rate = 1.0
+traces_sample_rate = 0.0
+debug = false
+
+[logger]
+level = "DEBUG"
+format = "text"
+target = "stderr"
+ansi = true
+
+[proxy]
+mode = "Handoff"
+listeners = ["Https"]
+redirect_http = false
+
+# Target nodes (WireGuard endpoints or target backends)
+[[proxy.nodes]]
+node_id = "httpbin-aws"
+endpoint = "3.234.68.252:443"
+
+# Domain-to-node routing
+[[services]]
+url = "https://httpbin.org"
+node_id = "httpbin-aws"

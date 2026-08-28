@@ -253,11 +253,95 @@ def fig11_separation(out):
     return save(fig, out)
 
 
+# --- 12. Managed Mode: Coolify Proxy Dynamic Routing -----------------------
+def fig12_managed_mode(out):
+    fig, ax = figure("Managed Mode", 13.5, 9.2)
+    title(fig, "Managed Mode — Coolify Proxy Dynamic Routing",
+          "Bridge acts as control-plane only: configures Traefik routing via file/HTTP provider. Zero hot-path involvement.",
+          "12")
+
+    # ===================== CONTROL PLANE (TOP) =====================
+    box_(4, 52, 92, 36, fill=PALETTE["teal_lt"], edge=PALETTE["teal"], radius=1.4, lw=1.8)
+    label(50, 85.5, "CONTROL PLANE (BRIDGE — NOT IN DATA PATH)", fontsize=11.5, weight="bold", color=PALETTE["navy"])
+    label(50, 82.5, "Bridge manages routing state and writes Traefik dynamic configuration — never touches application traffic.",
+          fontsize=8.0, color=PALETTE["slate_dk"], style="italic")
+
+    # Domain Registry
+    box(7, 60, 24, 16, "Domain Registry\n(SWIM Gossip)", fill=PALETTE["white"], edge=PALETTE["teal"],
+        fontsize=9.2, weight="bold", sub="app.example.com → VM-03\napi.example.com → VM-07", sub_size=7.0)
+
+    arrow((31, 68), (37, 68), color=PALETTE["teal"], lw=1.4)
+    label(34, 70.5, "route\nupdate", fontsize=7.0, color=PALETTE["teal"])
+
+    # Bridge Daemon
+    box(37, 60, 24, 16, "Bridge Daemon\n(Control Plane)", fill=PALETTE["navy"], edge=PALETTE["navy"],
+        tcolor=PALETTE["white"], fontsize=9.2, weight="bold",
+        sub="translates routes → Traefik config", sub_size=7.0)
+
+    arrow((61, 68), (67, 68), color=PALETTE["navy"], lw=1.4)
+    label(64, 70.5, "writes\nconfig", fontsize=7.0, color=PALETTE["navy"])
+
+    # Traefik Dynamic Config file
+    box(67, 60, 26, 16, "Traefik Dynamic Config\n(/etc/traefik/dynamic/)", fill=PALETTE["white"], edge=PALETTE["slate"],
+        fontsize=8.8, weight="bold", sub="bridge.yml — auto-generated\nrouters + services + TLS", sub_size=7.0)
+
+    # Arrow from config down to Traefik (crosses boundary)
+    arrow((80, 60), (80, 48.5), color=PALETTE["slate_dk"], lw=1.6, ls="--")
+    label(87, 54, "file provider\nhot-reload", fontsize=7.4, color=PALETTE["slate_dk"])
+
+    # ===================== SEPARATOR =====================
+    box_(22, 44.5, 56, 4.0, fill=WHITE, edge=PALETTE["navy"], radius=0.6, lw=1.0)
+    label(50, 46.5, "DATA PATH — Bridge has zero involvement below this line", fontsize=8.2,
+          color=PALETTE["navy"], weight="bold")
+
+    # ===================== DATA PATH (BOTTOM) =====================
+    box_(4, 6, 92, 34, fill=PALETTE["green_lt"], edge=PALETTE["green"], radius=1.4, lw=1.5)
+    label(50, 37, "DATA PATH (CLIENT → COOLIFY PROXY → SERVICE)", fontsize=11, weight="bold",
+          color=PALETTE["navy"])
+
+    # Client
+    box(7, 12, 20, 16, "Client\n(Browser / API)", fill=PALETTE["white"], edge=PALETTE["teal"],
+        fontsize=9.2, weight="bold", sub="HTTPS request", sub_size=7.2)
+
+    arrow((27, 20), (37, 20), color=PALETTE["teal"], lw=1.6)
+    label(32, 22.5, "HTTPS", fontsize=7.4, color=PALETTE["teal"], weight="bold")
+
+    # Coolify Proxy / Traefik
+    box(37, 12, 24, 16, "Coolify Proxy\n(Traefik :443)", fill=PALETTE["teal_lt"], edge=PALETTE["teal"],
+        fontsize=9.2, weight="bold", sub="TLS termination (Let's Encrypt)\nroutes via Bridge-injected config", sub_size=6.8)
+
+    arrow((61, 20), (71, 20), color=PALETTE["green"], lw=1.6)
+    label(66, 22.5, "WireGuard", fontsize=7.4, color=PALETTE["green"], weight="bold")
+
+    # App Container
+    box(71, 12, 22, 16, "App Container\n(VM-03 / Docker)", fill=PALETTE["green_lt"], edge=PALETTE["green"],
+        fontsize=9.2, weight="bold", sub="10.8.0.3:3000\n(via WireGuard mesh)", sub_size=7.0)
+
+    # Return arrow
+    arrow((71, 15), (61, 15), color=PALETTE["green"], lw=1.2, ls="--")
+    label(66, 13, "HTTP 200", fontsize=7.0, color=PALETTE["green"])
+    arrow((37, 15), (27, 15), color=PALETTE["teal"], lw=1.2, ls="--")
+    label(32, 13, "HTTPS resp", fontsize=7.0, color=PALETTE["teal"])
+
+    # Legend
+    legend([
+        (PALETTE["navy"], "Bridge Control Plane (config only)"),
+        (PALETTE["teal"], "Coolify Proxy / Traefik (handles traffic)"),
+        (PALETTE["green"], "App Service / WireGuard Mesh"),
+        (PALETTE["slate"], "Dynamic Config File", "line"),
+    ], x=2.5, y=0.5, w=28, h=4.5, title="Component Legend")
+
+    footer(fig)
+    return save(fig, out)
+
+
 if __name__ == "__main__":
     out = Path(__file__).parent.parent / "assets"
     out.mkdir(exist_ok=True)
     for fn, n in [(fig09_proxy_modes,       "09_proxy_modes_architecture.png"),
                   (fig10_seq_sni_handoff,   "10_seq_sni_handoff_routing.png"),
-                  (fig11_separation,        "11_proxy_handoff_separation.png")]:
+                  (fig11_separation,        "11_proxy_handoff_separation.png"),
+                  (fig12_managed_mode,      "12_managed_mode_architecture.png")]:
         p = fn(str(out / n))
         print("wrote", p)
+
