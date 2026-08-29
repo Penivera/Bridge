@@ -228,7 +228,85 @@ The Domain Registry maps inbound fully qualified domain names (FQDNs) to target 
 
 ---
 
-## 5. Configuration Example (`bridge.toml`)
+## 5. Adaptive Concurrency & Dynamic Worker Model
+
+Bridge implements an adaptive, event-driven worker concurrency engine inspired by Cloudflare's **Pingora** and Tokio's multi-threaded work-stealing scheduler.
+
+Instead of statically allocating fixed worker pools or spawning unbounded tasks per connection, Bridge uses an **elastic worker pool with work-stealing deques** that scales dynamically based on ingress queue dwell time.
+
+```
+                  ┌───────────────────────────────────────────────────────────┐
+                  │                 INGRESS & DISPATCH LAYER                  │
+                  │  • Single Acceptor Loop (TCP Listener on :443 / :80)      │
+                  │  • Ingress Work-Stealing Deque (crossbeam-deque SPMC)     │
+                  │  • Queue Dwell Latency Monitor (Sliding 20-Req Window)    │
+                  └─────────────────────────────┬─────────────────────────────┘
+                                                │
+                 ┌──────────────────────────────┼──────────────────────────────┐
+                 ▼                              ▼                              ▼
+        ┌──────────────────┐           ┌──────────────────┐           ┌──────────────────┐
+        │  Worker Task 1   │◄──────────│  Worker Task 2   │◄──────────│  Worker Task N   │
+        │(Baseline Active) │work-steal │(Auto-Spawned #2) │work-steal │(Up to Max Limit) │
+        │                  │──────────►│                  │──────────►│                  │
+        │ • SNI Peek / L4  │           │ • SNI Peek / L4  │           │ • Reaps on idle  │
+        │ • TCP Splicing   │           │ • TCP Splicing   │           │   cooldown > 15s │
+        └──────────────────┘           └──────────────────┘           └──────────────────┘
+```
+
+![Adaptive Concurrency & Work-Stealing Architecture](assets/13_concurrency_scaling_architecture.png)
+
+---
+
+### 5.1 Architecture & Core Components
+
+1. **Ingress Acceptor Loop (Single Producer):**
+   - The primary TCP listener loop accepts inbound TCP connections and immediately hands them off to the ingress dispatch layer with zero blocking.
+2. **Work-Stealing Deques (`crossbeam-deque` SPMC):**
+   - Each worker task maintains a local double-ended queue (deque).
+   - **Local FIFO/LIFO:** The worker pushes and pops from the bottom of its own queue for cache locality.
+   - **Work-Stealing:** When a worker runs out of tasks, it steals work from the top (FIFO) of other workers' deques or the global injector queue. This eliminates head-of-line blocking and spreads bursty load evenly across active workers.
+3. **Elastic Worker Pool (1 to `max_concurrency`):**
+   - **Baseline:** Bridge starts with a minimal footprint of **1 worker task** (`tokio::spawn`), consuming near-zero idle CPU and memory.
+   - **Scale-Up:** Under load, Bridge spawns additional worker tasks on demand up to `max_concurrency`.
+   - **Scale-Down:** When traffic drops, idle worker tasks gracefully terminate after a cooldown period, shrinking back down to the baseline of 1 worker.
+
+---
+
+### 5.2 Adaptive Auto-Scaling Algorithm
+
+The autoscaler uses **Queue Dwell Time (Queuing Latency)** over a sliding request buffer rather than raw connection counts to detect processing bottlenecks:
+
+#### Metrics & Timing Mechanics
+
+1. **Timestamp Tagging:** When an incoming connection is accepted, it is stamped with its arrival timestamp: $t_{\text{accepted}} = \text{Instant::now()}$.
+2. **Dwell Time Computation:** When an available worker dequeues the connection to begin SNI extraction, it computes the queue wait duration:
+   $$\Delta t_{\text{dwell}} = t_{\text{start}} - t_{\text{accepted}}$$
+3. **Sliding Buffer (20 Requests):** The metrics monitor records $\Delta t_{\text{dwell}}$ across a rolling window of the last 20 requests.
+
+#### Scaling Rules
+
+* **Scale-Up Trigger:**
+  If the average queue dwell time across the rolling buffer exceeds the latency threshold ($\tau_{\text{dwell}} = 5\text{ms}$), or if a batch of 20 requests experiences persistent queue backlog:
+  $$\overline{\Delta t}_{\text{dwell}} > \tau_{\text{dwell}} \quad \text{and} \quad N_{\text{workers}} < N_{\text{max\_concurrency}}$$
+  Bridge immediately spawns a new worker task (`tokio::spawn`) to drain the queue.
+* **Scale-Down / Reaper Trigger:**
+  When a dynamically spawned worker finds its local and steal deques empty for an idle cooldown timeout ($T_{\text{cooldown}} = 15\text{s}$), the worker exits cleanly:
+  $$T_{\text{idle}} \ge 15\text{s} \quad \text{and} \quad N_{\text{workers}} > 1 \implies \text{Worker Graceful Exit}$$
+
+---
+
+### 5.3 Concurrency Limits & Hardware Auto-Detection
+
+The maximum concurrency ceiling is controlled by `max_concurrency`:
+
+* **Manual Override:** Explicitly set in `bridge.toml` under `[proxy.max_concurrency]`.
+* **Default Ceiling:** Defaults to `20` worker tasks for general VPS workloads.
+* **System Auto-Detection Helper:** When set to `"auto"` (or left unconfigured on multi-core systems), Bridge auto-tunes the concurrency ceiling based on hardware specifications:
+  $$N_{\text{max}} = \min\left(64, \; \max\left(4, \; N_{\text{logical\_cpus}} \times 2\right)\right)$$
+
+---
+
+## 6. Configuration Example (`bridge.toml`)
 
 ```toml
 [node]
@@ -238,47 +316,39 @@ listen_port = 51820
 
 # ── Proxy Layer Configuration ─────────────────────────────────
 [proxy]
-mode = "handoff"                      # "handoff" (default, SNI L4) | "direct" (L7) | "managed" (control-plane)
-listen = "0.0.0.0:443"
-health_check_interval_s = 10
+mode            = "handoff"           # "handoff" (default, SNI L4) | "direct" (L7) | "managed" (control-plane)
+listeners       = ["https"]
+redirect_http   = false
+max_concurrency = 20                  # Maximum concurrent worker tasks (default: 20, or "auto")
 
-# ── Domain Registry Mappings ──────────────────────────────────
-[domains]
-"app.example.com"       = "vm-03"     # Forward SNI app.example.com -> VM-03:443 (Coolify)
-"api.example.com"       = "vm-07"     # Forward SNI api.example.com -> VM-07:443 (Coolify)
-"dashboard.example.com" = "vm-03"     # Forward SNI dashboard.example.com -> VM-03:443 (Coolify)
-"auth.example.com"      = "vm-02"     # Forward SNI auth.example.com -> VM-02:443 (Coolify)
+# ── Target Nodes (WireGuard Endpoints) ────────────────────────
+[[proxy.nodes]]
+node_id  = "vm-03"
+endpoint = "10.8.0.3:443"
 
-# ── Handoff HA Configuration ──────────────────────────────────
-[handoff]
-mode = "tunnel"                       # "tunnel" | "floating_ip" | "dns" | "none"
+[[proxy.nodes]]
+node_id  = "vm-07"
+endpoint = "10.8.0.7:443"
 
-[handoff.tunnel]
-tunnel_id    = "cf-tunnel-uuid"
-secret       = "env:CF_TUNNEL_SECRET"
-warm_standby = true
-```
+# ── Domain-to-Node Routing Table ─────────────────────────────
+[[services]]
+url     = "https://app.example.com"
+node_id = "vm-03"
 
-**Managed mode example:**
-
-```toml
-[proxy]
-mode = "managed"                      # Bridge configures Traefik, does not proxy traffic
-
-[proxy.traefik]
-provider = "file"                     # "file" (write YAML to watched dir) | "http" (serve provider endpoint)
-config_dir = "/etc/traefik/dynamic"   # Directory watched by Traefik's file provider
+[[services]]
+url     = "https://api.example.com"
+node_id = "vm-07"
 ```
 
 ---
 
-## 6. Rust Data Models & Types
+## 7. Rust Data Models & Types
 
 In [`proxy/src/core/enums.rs`](file:///home/peni/Projects/bridge/proxy/src/core/enums.rs):
 
 ```rust
 /// Operating modes for the Bridge proxy layer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum ProxyMode {
     /// Direct mode: Bridge terminates TLS and acts as an L7 reverse proxy.
     Direct,
@@ -286,9 +356,7 @@ pub enum ProxyMode {
     #[default]
     Handoff,
     /// Managed mode: Bridge does not proxy application traffic. Instead it acts as a
-    /// control-plane component that dynamically configures the existing Coolify proxy
-    /// (Traefik) on each VM via its provider API, injecting cross-node routing rules
-    /// so that Traefik handles both local and remote service routing directly.
+    /// control-plane component that dynamically configures the existing Coolify proxy (Traefik).
     Managed,
 }
 ```
@@ -296,38 +364,41 @@ pub enum ProxyMode {
 In [`src/core/config.rs`](file:///home/peni/Projects/bridge/src/core/config.rs):
 
 ```rust
-#[derive(Clone, SmartDefault)]
+#[derive(Clone, SmartDefault, Deserialize)]
+#[serde(default)]
 pub struct Config {
     #[default(false)]
     pub enable_telemetry: bool,
-    #[default(tracing::Level::DEBUG)]
-    pub log_level: tracing::Level,
+    pub sentry: SentryConfig,
+    pub logger: LoggerConfig,
     pub proxy: ProxyConfig,
+    pub services: Vec<Services>,
 }
 
-#[derive(Clone, SmartDefault)]
+#[derive(Clone, SmartDefault, Deserialize)]
+#[serde(default)]
 pub struct ProxyConfig {
     pub mode: proxy::core::enums::ProxyMode,
-    /// Which schemes to listen on. Can contain Http, Https, or both.
-    /// In Managed mode this field is ignored (Bridge does not bind listener ports).
     pub listeners: Vec<proxy::core::enums::Scheme>,
-    /// When true and both Http and Https listeners are active,
-    /// the Http listener redirects all traffic to Https instead of serving it.
-    /// Ignored in Managed mode.
     #[default(false)]
     pub redirect_http: bool,
+    pub nodes: Vec<registry::Node>,
+    /// Maximum worker task concurrency ceiling (default: 20)
+    #[default(20)]
+    pub max_concurrency: usize,
 }
 ```
 
 ---
 
-## 7. Open Questions & Implementation Considerations
+## 8. Open Questions & Implementation Considerations
 
-1. **PROXY Protocol v2 Support:**  
-   When Bridge forwards raw TCP connections to a destination VM's Coolify proxy over WireGuard, the destination proxy sees the connection originating from Bridge's WireGuard IP (e.g. `10.8.0.1`). Bridge should optionally prepend a **PROXY protocol v2 header** before streaming the `ClientHello` bytes so that Traefik/Nginx can recover real client source IPs for rate limiting, geo-blocking, and logging.
-2. **Plain HTTP (Port 80) Handling in Handoff Mode:**  
-   For non-TLS requests on port 80, Bridge can either:
-   - Perform an automatic `301 Moved Permanently` redirect to `https://<Host>/` at the entry point.
-   - Inspect the HTTP `Host:` header in plaintext and forward the TCP stream to the target VM's port 80.
-3. **Coolify Webhook / Gossip Integration:**  
+1. **Work-Stealing vs Single SPMC Channel Benchmark:**  
+   Benchmarking `crossbeam-deque` against `tokio::sync::mpsc` under high connection churn (>50,000 req/s) to ensure lock-free deques offer measurable throughput and latency gains on low-core VPS instances.
+2. **PROXY Protocol v2 Support:**  
+   When Bridge forwards raw TCP connections to a destination VM's Coolify proxy over WireGuard, Bridge should optionally prepend a **PROXY protocol v2 header** before streaming the `ClientHello` bytes so that Traefik/Nginx can recover real client source IPs for rate limiting, geo-blocking, and logging.
+3. **Plain HTTP (Port 80) Handling in Handoff Mode:**  
+   For non-TLS requests on port 80, Bridge can either perform an automatic `301 Moved Permanently` redirect to `https://<Host>/` at the entry point or inspect the plaintext HTTP `Host:` header and forward the TCP stream to the target VM's port 80.
+4. **Coolify Webhook / Gossip Integration:**  
    Coolify can notify the local Bridge daemon on container deploy/stop events via a lightweight localhost HTTP webhook (`POST /v1/routes`), instantly broadcasting route changes across the fleet.
+

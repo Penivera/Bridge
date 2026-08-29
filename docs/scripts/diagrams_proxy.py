@@ -323,13 +323,107 @@ def fig12_managed_mode(out):
     arrow((37, 15), (27, 15), color=PALETTE["teal"], lw=1.2, ls="--")
     label(32, 13, "HTTPS resp", fontsize=7.0, color=PALETTE["teal"])
 
+# --- 13. Concurrency & Dynamic Scaling Architecture -----------------------
+def fig13_concurrency_scaling(out):
+    fig, ax = figure("Concurrency Scaling", 14.0, 9.6)
+    title(fig, "Adaptive Concurrency & Work-Stealing Architecture",
+          "Dynamic Tokio worker task scaling driven by queue dwell latency with Pingora-style SPMC work-stealing.",
+          "13")
+
+    # ===================== TOP: INGRESS & DISPATCH LAYER =====================
+    box_(4, 58, 92, 27, fill=PALETTE["slate_lt"], edge=PALETTE["slate"], radius=1.2, lw=1.5)
+    label(50, 82.5, "INGRESS, ACCEPTOR & DISPATCH LAYER", fontsize=11, weight="bold", color=PALETTE["navy"])
+    label(50, 79.8, "Single-Producer Acceptor Loop with Queue Dwell Time Tracker", fontsize=7.8, color=PALETTE["slate_dk"], style="italic")
+
+    # 1. TCP Listener
+    box_(7, 61, 23, 15, fill=PALETTE["teal_lt"], edge=PALETTE["teal"], radius=0.8, lw=1.2)
+    label(18.5, 71.5, "TCP Listener", fontsize=9.2, weight="bold", color=PALETTE["navy"])
+    label(18.5, 68.8, "(Port :443 / :80)", fontsize=7.5, color=PALETTE["navy"])
+    label(18.5, 64.2, "Accepts client streams\nZero-blocking handoff", fontsize=6.8, color=PALETTE["slate_dk"], style="italic")
+
+    arrow((30, 68.5), (37, 68.5), color=PALETTE["navy"], lw=1.6)
+    label(33.5, 71.0, "stream", fontsize=7.2, color=PALETTE["navy"], weight="bold")
+
+    # 2. Queue Dwell Monitor
+    box_(37, 61, 26, 15, fill=PALETTE["white"], edge=PALETTE["navy"], radius=0.8, lw=1.2)
+    label(50, 71.5, "Queue Dwell Monitor", fontsize=9.0, weight="bold", color=PALETTE["navy"])
+    label(50, 68.8, "(Sliding 20-Req Window)", fontsize=7.5, color=PALETTE["navy"])
+    label(50, 64.2, "Tags arrival: t_accepted\nTracks avg queue delay: Δt", fontsize=6.8, color=PALETTE["slate_dk"], style="italic")
+
+    arrow((63, 68.5), (70, 68.5), color=PALETTE["navy"], lw=1.6)
+    label(66.5, 71.0, "push", fontsize=7.2, color=PALETTE["navy"], weight="bold")
+
+    # 3. Global SPMC Ingress Deque
+    box_(70, 61, 23, 15, fill=PALETTE["white"], edge=PALETTE["teal"], radius=0.8, lw=1.2)
+    label(81.5, 71.5, "Ingress Deque", fontsize=9.2, weight="bold", color=PALETTE["navy"])
+    label(81.5, 68.8, "(crossbeam-deque)", fontsize=7.5, color=PALETTE["navy"])
+    label(81.5, 64.2, "Lock-free SPMC buffer\nInjector for worker steal", fontsize=6.8, color=PALETTE["slate_dk"], style="italic")
+
+    # ===================== MIDDLE: ELASTIC WORKER POOL =====================
+    box_(4, 29, 92, 25, fill=PALETTE["teal_lt"], edge=PALETTE["teal"], radius=1.2, lw=1.8)
+    label(50, 51.5, "ELASTIC TOKIO WORKER POOL (1 TO MAX_CONCURRENCY)", fontsize=11, weight="bold", color=PALETTE["navy"])
+    label(50, 48.8, "Lightweight async tasks; workers pop local LIFO & steal FIFO when idle", fontsize=7.8, color=PALETTE["slate_dk"], style="italic")
+
+    # Worker 1
+    box_(7, 32, 24, 14, fill=PALETTE["green_lt"], edge=PALETTE["green"], radius=0.8, lw=1.2)
+    label(19, 41.5, "Worker Task 1", fontsize=9.0, weight="bold", color=PALETTE["navy"])
+    label(19, 39.0, "[Baseline Active]", fontsize=7.2, color=PALETTE["green"], weight="bold")
+    label(19, 35.0, "SNI Parser + TCP Splice\nPops LIFO from local queue", fontsize=6.8, color=PALETTE["slate_dk"], style="italic")
+
+    # Work steal arrow 1 <-> 2
+    arrow((31, 40), (39, 40), color=PALETTE["crimson"], lw=1.4, ls="--")
+    arrow((39, 38), (31, 38), color=PALETTE["crimson"], lw=1.4, ls="--")
+    label(35, 43.5, "work steal", fontsize=6.8, color=PALETTE["crimson"], weight="bold")
+
+    # Worker 2
+    box_(39, 32, 24, 14, fill=PALETTE["white"], edge=PALETTE["teal"], radius=0.8, lw=1.2)
+    label(51, 41.5, "Worker Task 2", fontsize=9.0, weight="bold", color=PALETTE["navy"])
+    label(51, 39.0, "[Auto-Spawned]", fontsize=7.2, color=PALETTE["teal"], weight="bold")
+    label(51, 35.0, "Spawned when Δt > 5ms\nSteals from Worker 1 / Ingress", fontsize=6.8, color=PALETTE["slate_dk"], style="italic")
+
+    # Work steal arrow 2 <-> N
+    arrow((63, 40), (71, 40), color=PALETTE["crimson"], lw=1.4, ls="--")
+    arrow((71, 38), (63, 38), color=PALETTE["crimson"], lw=1.4, ls="--")
+    label(67, 43.5, "work steal", fontsize=6.8, color=PALETTE["crimson"], weight="bold")
+
+    # Worker N
+    box_(71, 32, 23, 14, fill=PALETTE["white"], edge=PALETTE["slate"], radius=0.8, lw=1.2)
+    label(82.5, 41.5, "Worker Task N ...", fontsize=9.0, weight="bold", color=PALETTE["navy"])
+    label(82.5, 39.0, "[max_concurrency: 20]", fontsize=7.2, color=PALETTE["slate_dk"], weight="bold")
+    label(82.5, 35.0, "Elastic limit (20 / Auto)\nReaps on 15s idle cooldown", fontsize=6.8, color=PALETTE["slate_dk"], style="italic")
+
+    # Vertical Dispatch arrow from Ingress to Worker pool
+    arrow((81.5, 61), (81.5, 46), color=PALETTE["teal"], lw=1.6)
+
+    # ===================== BOTTOM: POLICY CARDS & LEGEND =====================
+    # Card 1: Scale Up
+    box_(4, 5, 21.5, 20, fill=PALETTE["crimson_lt"], edge=PALETTE["crimson"], radius=0.8, lw=1.2)
+    label(14.75, 22.0, "Scale-Up Trigger", fontsize=8.8, weight="bold", color=PALETTE["crimson"])
+    label(14.75, 19.8, "(Latency Bound)", fontsize=7.4, color=PALETTE["crimson"])
+    ax.text(6.0, 17.0, "• Metric: Queue delay Δt\n• Threshold: Δt_dwell > 5ms\n• Buffer: Last 20 requests\n• Action: Spawn +1 Worker",
+            fontsize=7.0, color=PALETTE["navy"], va="top", ha="left", linespacing=1.35, zorder=3)
+
+    # Card 2: Work Stealing
+    box_(27.5, 5, 21.5, 20, fill=PALETTE["white"], edge=PALETTE["teal"], radius=0.8, lw=1.2)
+    label(38.25, 22.0, "Work-Stealing Policy", fontsize=8.8, weight="bold", color=PALETTE["navy"])
+    label(38.25, 19.8, "(Pingora-Style)", fontsize=7.4, color=PALETTE["teal"])
+    ax.text(29.5, 17.0, "• Owner: LIFO pop (cache)\n• Stealer: Steal FIFO top\n• Zero lock contention\n• Dynamic load balance",
+            fontsize=7.0, color=PALETTE["slate_dk"], va="top", ha="left", linespacing=1.35, zorder=3)
+
+    # Card 3: Scale Down
+    box_(51, 5, 21.5, 20, fill=PALETTE["slate_lt"], edge=PALETTE["slate"], radius=0.8, lw=1.2)
+    label(61.75, 22.0, "Scale-Down Reaper", fontsize=8.8, weight="bold", color=PALETTE["navy"])
+    label(61.75, 19.8, "(Idle Cooldown)", fontsize=7.4, color=PALETTE["slate_dk"])
+    ax.text(53.0, 17.0, "• Condition: Queue empty\n• Cooldown: Idle > 15s\n• Action: Graceful exit\n• Floor: Min 1 active worker",
+            fontsize=7.0, color=PALETTE["slate_dk"], va="top", ha="left", linespacing=1.35, zorder=3)
+
     # Legend
     legend([
-        (PALETTE["navy"], "Bridge Control Plane (config only)"),
-        (PALETTE["teal"], "Coolify Proxy / Traefik (handles traffic)"),
-        (PALETTE["green"], "App Service / WireGuard Mesh"),
-        (PALETTE["slate"], "Dynamic Config File", "line"),
-    ], x=2.5, y=0.5, w=28, h=4.5, title="Component Legend")
+        (PALETTE["navy"], "Acceptor & Dwell Monitor"),
+        (PALETTE["teal"], "SPMC Work-Stealing Deque"),
+        (PALETTE["green"], "Baseline Active Worker"),
+        (PALETTE["crimson"], "Work-Stealing Path", "line"),
+    ], x=74.5, y=5.0, w=21.5, h=20.0, title="Component Legend")
 
     footer(fig)
     return save(fig, out)
@@ -338,10 +432,12 @@ def fig12_managed_mode(out):
 if __name__ == "__main__":
     out = Path(__file__).parent.parent / "assets"
     out.mkdir(exist_ok=True)
-    for fn, n in [(fig09_proxy_modes,       "09_proxy_modes_architecture.png"),
-                  (fig10_seq_sni_handoff,   "10_seq_sni_handoff_routing.png"),
-                  (fig11_separation,        "11_proxy_handoff_separation.png"),
-                  (fig12_managed_mode,      "12_managed_mode_architecture.png")]:
+    for fn, n in [(fig09_proxy_modes,          "09_proxy_modes_architecture.png"),
+                  (fig10_seq_sni_handoff,      "10_seq_sni_handoff_routing.png"),
+                  (fig11_separation,           "11_proxy_handoff_separation.png"),
+                  (fig12_managed_mode,         "12_managed_mode_architecture.png"),
+                  (fig13_concurrency_scaling,  "13_concurrency_scaling_architecture.png")]:
         p = fn(str(out / n))
         print("wrote", p)
+
 
