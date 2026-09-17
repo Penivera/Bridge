@@ -1,6 +1,6 @@
-use std::sync::Arc;
 use bridge::core::config::Config;
 use bridge::core::telemetry::init_telemetry;
+use std::sync::Arc;
 mod cli;
 use clap::Parser;
 use cli::Args;
@@ -18,12 +18,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let registry = Arc::new(registry::DomainRegistry::new());
 
     // Map nodes by node_id for lookup
-    let node_map: std::collections::HashMap<&String, &Node> = config
-        .proxy
-        .nodes
-        .iter()
-        .map(|n| (&n.node_id, n))
-        .collect();
+    let node_map: std::collections::HashMap<&String, &Node> =
+        config.nodes.iter().map(|n| (&n.node_id, n)).collect();
 
     for service in &config.services {
         if let Some(node) = node_map.get(&service.node_id) {
@@ -32,10 +28,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             tracing::warn!(
                 url = %service.url,
                 node_id = %service.node_id,
-                "node not found in proxy.nodes table"
+                "node not found in nodes table"
             );
         }
     }
+
+    let _proxy = proxy::Proxy::new(Arc::new(config.proxy.clone()), registry.clone());
 
     tracing::info!(
         mode = ?config.proxy.mode,

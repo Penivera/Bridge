@@ -14,16 +14,30 @@ target = "stderr"
 ansi = true
 
 [proxy]
-mode = "Handoff"
-listeners = ["Https"]
+mode = "Direct"
+listeners = ["Http"]
 redirect_http = false
 
 # Target nodes (WireGuard endpoints or target backends)
-[[proxy.nodes]]
+[[nodes]]
 node_id = "httpbin-aws"
 endpoint = "3.234.68.252:443"
+
+[[nodes]]
+node_id = "self"
+endpoint = "127.0.0.1:80"
 
 # Domain-to-node routing
 [[services]]
 url = "https://httpbin.org"
 node_id = "httpbin-aws"
+
+[[services]]
+url = "http://cafx.test"
+node_id = "self"
+upstream = "127.0.0.1:8080"
+
+[[services]]
+url = "https://random.test"
+node_id = "self"
+upstream = "127.0.0.1:8000"

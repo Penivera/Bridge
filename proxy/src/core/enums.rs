@@ -20,12 +20,14 @@ pub enum ProxyMode {
     Managed,
 }
 
-/// Scheme for the Bridge proxy layer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Scheme {
     /// Listen for http traffic only port:80.
+    #[serde(alias = "Http")]
     Http,
     /// Listen for https traffic only port:443.
+    #[serde(alias = "Https")]
     #[default]
     Https,
 }

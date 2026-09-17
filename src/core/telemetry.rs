@@ -1,10 +1,5 @@
-use tracing_subscriber::{
-    fmt,
-    layer::SubscriberExt,
-    util::SubscriberInitExt,
-    EnvFilter,
-};
 use crate::core::config::Config;
+use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
 /// Initializes tracing logging and optional Sentry telemetry based on the configuration.
 ///
@@ -47,8 +42,7 @@ pub fn init_telemetry(config: &Config) -> Option<sentry::ClientInitGuard> {
         .with_default_directive(config.logger.level.into())
         .from_env_lossy();
 
-    let fmt_layer = fmt::layer().with_ansi(config.logger.ansi)
-        .with_file(true);
+    let fmt_layer = fmt::layer().with_ansi(config.logger.ansi).with_file(true);
 
     let sentry_layer = if config.enable_telemetry && sentry_guard.is_some() {
         Some(sentry_tracing::layer())

@@ -1,0 +1,48 @@
+use hyper::server::conn::http1::Builder as ServerBuilder;
+use hyper::service::service_fn;
+use hyper_util::rt::TokioIo;
+use tokio::net::TcpListener;
+use tokio::task::JoinSet;
+
+use crate::core::config::ProxyConfig;
+use crate::core::enums::Scheme;
+use crate::server::proxy;
+
+/// Binds TCP listeners based on the provided proxy configuration.
+pub async fn bind_listeners(config: &ProxyConfig) -> std::io::Result<Vec<TcpListener>> {
+    let mut listeners = Vec::new();
+    for scheme in &config.listeners {
+        let addr = match scheme {
+            Scheme::Http => config.http_addr(),
+            Scheme::Https => config.https_addr(),
+        };
+        listeners.push(TcpListener::bind(addr).await?);
+    }
+    Ok(listeners)
+}
+
+/// Runs the accept loop for the provided TCP listeners, serving incoming connections.
+pub async fn run_listeners(listeners: Vec<TcpListener>) -> std::io::Result<()> {
+    let mut tasks = JoinSet::new();
+    for listener in listeners {
+        tasks.spawn(async move {
+            match listener.accept().await {
+                Ok((stream, _)) => {
+                    let io = TokioIo::new(stream);
+                    ServerBuilder::new()
+                        .preserve_header_case(true)
+                        .title_case_headers(true)
+                        .serve_connection(io, service_fn(proxy))
+                        .await
+                        .map_err(std::io::Error::other)?;
+                    Ok(())
+                }
+                Err(error) => Err(error),
+            }
+        });
+    }
+    while let Some(result) = tasks.join_next().await {
+        result.map_err(std::io::Error::other)??;
+    }
+    Ok(())
+}

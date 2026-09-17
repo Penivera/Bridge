@@ -10,7 +10,7 @@ fn deserialize_log_level<'de, D: serde::Deserializer<'de>>(
         .map_err(|e| serde::de::Error::custom(e))
 }
 
-
+pub use proxy::ProxyConfig;
 
 #[derive(Clone, SmartDefault, Deserialize)]
 #[serde(default)]
@@ -20,7 +20,8 @@ pub struct Config {
     pub sentry: SentryConfig,
     pub logger: LoggerConfig,
     pub proxy: ProxyConfig,
-    pub services: Vec<Services>,
+    pub nodes: Vec<registry::Node>,
+    pub services: Vec<Service>,
     #[serde(skip)]
     pub loaded_from: Option<std::path::PathBuf>,
 }
@@ -46,36 +47,23 @@ pub struct SentryConfig {
     pub debug: bool,
 }
 
-#[derive(Clone,Deserialize)]
-pub struct Services {
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct Service {
     pub url: url::Url,
-    pub node_id:String
+    pub node_id: String,
+    #[serde(default)]
+    pub upstream: Option<std::net::SocketAddr>,
 }
 
-#[derive(Clone, SmartDefault, Deserialize)]
-#[serde(default)]
-pub struct ProxyConfig {
-    pub mode: proxy::core::enums::ProxyMode,
-    /// Which schemes to listen on. Can contain Http, Https, or both.
-    /// In Managed mode this field is ignored (Bridge does not bind listener ports).
-    pub listeners: Vec<proxy::core::enums::Scheme>,
-    /// When true and both Http and Https listeners are active,
-    /// the Http listener redirects all traffic to Https instead of serving it.
-    /// Ignored in Managed mode.
-    #[default(false)]
-    pub redirect_http: bool,
-    pub nodes: Vec<registry::Node>,
-}
-
-#[derive(SmartDefault,Deserialize,Clone)]
+#[derive(SmartDefault, Deserialize, Clone)]
 #[serde[default]]
-pub struct LoggerConfig{
+pub struct LoggerConfig {
     #[serde(deserialize_with = "deserialize_log_level")]
     #[default(tracing::Level::DEBUG)]
     pub level: tracing::Level,
     #[default(LogFormat::Text)]
     pub format: LogFormat,
-    #[default(LogTarget::Stderr)]    
+    #[default(LogTarget::Stderr)]
     pub target: LogTarget,
     #[default(true)]
     pub ansi: bool,
@@ -89,21 +77,22 @@ pub enum LogTarget {
     Stdout,
 }
 
-#[derive(Serialize,Deserialize,Default,Debug,Clone)]
-#[serde(rename_all="lowercase")]
+#[derive(Serialize, Deserialize, Default, Debug, Clone)]
+#[serde(rename_all = "lowercase")]
 pub enum LogFormat {
     #[default]
     Text,
-    Json
+    Json,
 }
-
 
 impl Config {
     pub fn from_toml_str(toml_str: &str) -> Result<Self, toml::de::Error> {
         toml::from_str(toml_str)
     }
 
-    pub fn from_file(path: impl AsRef<std::path::Path>) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn from_file(
+        path: impl AsRef<std::path::Path>,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
         let file_data = std::fs::read_to_string(&path)?;
         let mut config = Self::from_toml_str(&file_data)?;
         config.loaded_from = Some(path.as_ref().to_path_buf());
@@ -115,7 +104,9 @@ impl Config {
     /// 2. `BRIDGE_CONFIG` environment variable
     /// 3. Standard fallback candidate paths (`bridge.toml`, `/etc/bridge/bridge.toml`)
     /// 4. Falls back to default in-memory config if no configuration file is found
-    pub fn load_auto(cli_override: Option<&std::path::Path>) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn load_auto(
+        cli_override: Option<&std::path::Path>,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
         if let Some(path) = cli_override {
             return Self::from_file(path);
         }
@@ -137,5 +128,13 @@ impl Config {
             }
         }
         Ok(Self::default())
+    }
+
+    pub fn http_addr(&self) -> std::net::SocketAddr {
+        self.proxy.http_addr()
+    }
+
+    pub fn https_addr(&self) -> std::net::SocketAddr {
+        self.proxy.https_addr()
     }
 }

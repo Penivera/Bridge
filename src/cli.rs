@@ -1,10 +1,9 @@
 use clap::Parser;
 
-#[derive(Parser,Debug)]
+#[derive(Parser, Debug)]
 #[command(author,version,about,long_about = None)]
-pub struct Args{
+pub struct Args {
     #[arg(short, long)]
     // Takes a path to a configuration file
-    pub config: Option<std::path::PathBuf>
+    pub config: Option<std::path::PathBuf>,
 }
-
