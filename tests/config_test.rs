@@ -1,5 +1,5 @@
 use bridge::core::config::{Config, ProxyConfig};
-use proxy::core::enums::{ProxyMode, Scheme};
+use proxy::core::enums::ProxyMode;
 
 #[test]
 fn test_default_config_has_handoff_mode() {
@@ -69,7 +69,7 @@ fn test_from_toml_str() {
     assert_eq!(config.proxy.https_addr(), "0.0.0.0:443".parse().unwrap());
     assert_eq!(config.nodes.len(), 1);
     assert_eq!(config.nodes[0].node_id, "vm-03");
-    assert_eq!(config.nodes[0].endpoint, "10.8.0.3:443".parse().unwrap());
+    assert_eq!(config.nodes[0].address, "10.8.0.3:443".parse().unwrap());
 }
 
 #[test]
@@ -90,18 +90,15 @@ fn test_proxy_config_managed() {
 fn test_load_bridge_toml() {
     let config = Config::from_file("bridge.toml").expect("failed to load bridge.toml");
     assert_eq!(config.proxy.mode, ProxyMode::Direct);
-    assert_eq!(config.proxy.http_addr(), "127.0.0.1:80".parse().unwrap());
-    assert_eq!(config.proxy.https_addr(), "127.0.0.1:443".parse().unwrap());
-    assert_eq!(config.http_addr(), "127.0.0.1:80".parse().unwrap());
-    assert_eq!(config.https_addr(), "127.0.0.1:443".parse().unwrap());
+    assert_eq!(config.proxy.http_addr(), "0.0.0.0:80".parse().unwrap());
+    assert_eq!(config.proxy.https_addr(), "0.0.0.0:443".parse().unwrap());
+    assert_eq!(config.http_addr(), "0.0.0.0:80".parse().unwrap());
+    assert_eq!(config.https_addr(), "0.0.0.0:443".parse().unwrap());
     assert_eq!(config.nodes.len(), 2);
     assert_eq!(config.nodes[0].node_id, "httpbin-aws");
-    assert_eq!(
-        config.nodes[0].endpoint,
-        "3.234.68.252:443".parse().unwrap()
-    );
+    assert_eq!(config.nodes[0].address, "3.234.68.252:443".parse().unwrap());
     assert_eq!(config.nodes[1].node_id, "self");
-    assert_eq!(config.nodes[1].endpoint, "127.0.0.1:80".parse().unwrap());
+    assert_eq!(config.nodes[1].address, "127.0.0.1:80".parse().unwrap());
     assert_eq!(config.services.len(), 3);
     assert_eq!(config.services[0].url.as_str(), "https://httpbin.org/");
     assert_eq!(config.services[0].node_id, "httpbin-aws");

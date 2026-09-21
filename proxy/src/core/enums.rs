@@ -24,10 +24,10 @@ pub enum ProxyMode {
 #[serde(rename_all = "lowercase")]
 pub enum Scheme {
     /// Listen for http traffic only port:80.
-    #[serde(alias = "Http")]
+    #[serde(alias = "http")]
     Http,
     /// Listen for https traffic only port:443.
-    #[serde(alias = "Https")]
+    #[serde(alias = "https")]
     #[default]
     Https,
 }

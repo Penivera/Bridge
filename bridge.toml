@@ -15,7 +15,7 @@ ansi = true
 
 [proxy]
 mode = "Direct"
-listeners = ["Http"]
+listeners = ["http"]
 redirect_http = false
 
 # Target nodes (WireGuard endpoints or target backends)

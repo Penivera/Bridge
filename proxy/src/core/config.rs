@@ -5,17 +5,15 @@ use smart_default::SmartDefault;
 
 use crate::core::enums::{ProxyMode, Scheme};
 
-pub fn deserialize_listeners<'de, D>(
-    deserializer: D,
-) -> Result<Vec<Scheme>, D::Error>
+pub fn deserialize_listeners<'de, D>(deserializer: D) -> Result<Vec<Scheme>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
     let listeners = Vec::<Scheme>::deserialize(deserializer)?;
 
-    if listeners.is_empty() || listeners.len() > 2 {
+    if listeners.len() > 2 {
         return Err(serde::de::Error::custom(
-            "listeners must contain 1 or 2 schemes",
+            "listeners must contain at most 2 schemes",
         ));
     }
 

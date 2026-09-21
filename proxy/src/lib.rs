@@ -6,4 +6,4 @@ pub mod transport;
 
 pub use core::config::ProxyConfig;
 pub use error::ProxyError;
-pub use server::{proxy, Proxy};
+pub use server::Proxy;

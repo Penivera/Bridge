@@ -8,8 +8,6 @@ use crate::core::enums::ProxyMode;
 
 mod handler;
 
-pub use handler::proxy;
-
 /// Core ingress proxy engine for Bridge.
 #[derive(Clone)]
 pub struct Proxy {
@@ -20,7 +18,10 @@ pub struct Proxy {
 impl Proxy {
     /// Creates a new `Proxy` instance with the given configuration and domain registry.
     pub fn new(config: Arc<ProxyConfig>, registry: Arc<DomainRegistry>) -> Self {
-        Self { config, registry }
+        Self {
+            config,
+            registry
+        }
     }
 
     /// Returns a reference to the proxy configuration.
@@ -46,6 +47,7 @@ impl Proxy {
 
     /// Runs the accept loop on the provided listeners to serve incoming traffic.
     pub async fn run_listeners(&self, listeners: Vec<TcpListener>) -> std::io::Result<()> {
-        crate::transport::run_listeners(listeners).await
+        crate::transport::run_listeners(listeners, self.clone()).await
     }
 }
+

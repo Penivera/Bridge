@@ -3,4 +3,4 @@
 //! Exposes domain registry types and routing table primitives used to
 //! map inbound domain requests to destination nodes and endpoints.
 
-pub use registry::{DomainRegistry, Node};
+pub use registry::{DomainRegistry, Node, Route};

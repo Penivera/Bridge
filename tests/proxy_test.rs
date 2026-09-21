@@ -3,7 +3,7 @@ use proxy::{Proxy, ProxyConfig};
 use registry::DomainRegistry;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::time::timeout;
 
@@ -62,8 +62,13 @@ async fn assert_listeners_accept(count: usize) {
     let clients = async {
         for addr in &addresses {
             let mut stream = TcpStream::connect(addr).await.unwrap();
-            let mut buffer = [0];
-            assert_eq!(stream.read(&mut buffer).await.unwrap(), 0);
+            stream
+                .write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+                .await
+                .unwrap();
+            let mut response = Vec::new();
+            stream.read_to_end(&mut response).await.unwrap();
+            assert!(response.starts_with(b"HTTP/1.1 200 OK"));
         }
     };
     timeout(Duration::from_secs(2), async {
