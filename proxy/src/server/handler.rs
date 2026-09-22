@@ -1,7 +1,7 @@
 #![allow(warnings)]
 use super::Proxy;
 use bytes::Bytes;
-use hyper::{Method, Request, Response, StatusCode, body::Incoming as IncomingBody, header::HOST, service::Service, upgrade::Upgraded};
+use hyper::{Method, Request, Response, StatusCode, body::{Incoming as IncomingBody,}, header::HOST, service::Service, upgrade::Upgraded};
 use hyper_util::rt::TokioIo;
 use registry::Route;
 use tokio::net::TcpStream;
@@ -9,7 +9,7 @@ use tokio::net::TcpStream;
 use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full};
 
 use std::{
-    convert::Infallible, future::{Ready, ready}, pin::Pin,
+    convert::Infallible, fmt::format, future::{Ready, ready}, pin::Pin,
 };
 use futures::FutureExt;
 
@@ -70,9 +70,9 @@ impl Proxy {
         Ok(())
     }
 
-    async fn handle_request(&self, request: Request<IncomingBody>, upstream: String) -> Result<Response<BoxBody<Bytes,hyper::Error>>,hyper::Error> {
+    async fn handle_request(&self,  mut request: Request<IncomingBody>, upstream: String) -> Result<Response<BoxBody<Bytes,hyper::Error>>,hyper::Error> {
         if Method::CONNECT == request.method() {
-            // Return an empty body to conncet request then upgrade the connection
+            // Return an empty body to connect request then upgrade the connection
             let this = self.clone();
             tokio::spawn(
                 async move {
@@ -94,37 +94,28 @@ impl Proxy {
             let parts: Vec<&str> = upstream.splitn(2, ':').collect();
             let host = parts[0];
             let port: u16 = parts.get(1).and_then(|p| p.parse().ok()).unwrap();
+            let path_and_query = request.uri().path_and_query().map(|pq | pq.as_str()).unwrap_or("/");
 
-            let stream = match TcpStream::connect((host, port)).await {
-                Ok(stream) => stream,
+            let upstream_url = format!("http://{upstream}{path_and_query}").parse::<hyper::Uri>().unwrap();
+           
+
+            // Reusing the client which internally uses connection pooling
+
+            *request.uri_mut() = upstream_url;
+            tracing::debug!("{}",request.uri());
+            let resp = match self.client.request(request.map(|b| b.boxed())).await{
+                Ok(resp) => resp.map(|b| b.boxed()),
                 Err(e) => {
-                    tracing::error!("Connection error: {e:?}");
-
+                    tracing::error!("Request error: {e:?}");
                     let body = Full::new(Bytes::from("Upstream connection failed"))
                         .map_err(|never: Infallible| match never {})
                         .boxed();
-                    
                     let mut response = Response::new(body);
-            
-                    *response.status_mut() = StatusCode::BAD_GATEWAY;
-            
-                    return Ok(response);
+                    *response.status_mut() = StatusCode::SERVICE_UNAVAILABLE;
+                    response
                 }
             };
-            let io = TokioIo::new(stream);
-
-            let (mut sender, conn) = hyper::client::conn::http1::handshake(io)
-                .await?;
-            tokio::spawn(
-                async move {
-                    if let Err(err) = conn.await {
-                        tracing::error!("Handshake error: {err:?}");
-                    }
-                }
-            );
-            let resp = sender.send_request(request).await?;
-            Ok(resp.map( |b| b.boxed()))
-            
+            Ok(resp)
         }
     }
 }

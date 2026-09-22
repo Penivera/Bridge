@@ -1,8 +1,10 @@
 use std::sync::Arc;
 
+use bytes::Bytes;
+use http_body_util::combinators::BoxBody;
 use registry::DomainRegistry;
 use tokio::net::TcpListener;
-
+use hyper_util::{rt::TokioExecutor,client::legacy::{Client,connect::HttpConnector}};
 use crate::core::config::ProxyConfig;
 use crate::core::enums::ProxyMode;
 
@@ -13,14 +15,18 @@ mod handler;
 pub struct Proxy {
     pub config: Arc<ProxyConfig>,
     pub registry: Arc<DomainRegistry>,
+    pub client: Client<HttpConnector,BoxBody<Bytes,hyper::Error>>
 }
 
 impl Proxy {
     /// Creates a new `Proxy` instance with the given configuration and domain registry.
     pub fn new(config: Arc<ProxyConfig>, registry: Arc<DomainRegistry>) -> Self {
+        let client = Client::builder(TokioExecutor::new()).build(HttpConnector::new());
         Self {
             config,
-            registry
+            registry,
+            client
+            
         }
     }
 
