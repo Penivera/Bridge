@@ -38,14 +38,46 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    let mut proxy_config = config.proxy.clone();
+    proxy_config.udp_services.extend(config.udp_services.clone());
+
+    for udp_service in &mut proxy_config.udp_services {
+        if udp_service.node_id != "self" {
+            if let Some(node) = node_map.get(&udp_service.node_id) {
+                if udp_service.upstream.ip().is_loopback() || udp_service.upstream.ip().is_unspecified() {
+                    udp_service.upstream = std::net::SocketAddr::new(
+                        node.target_address_with_fallback(proxy_config.routing).ip(),
+                        udp_service.listen_port,
+                    );
+                }
+            } else {
+                tracing::warn!(
+                    node_id = %udp_service.node_id,
+                    listen_port = udp_service.listen_port,
+                    "node not found in nodes table for udp service"
+                );
+            }
+        } else if udp_service.upstream.port() == udp_service.listen_port
+            && (udp_service.listen_addr.ip().is_unspecified() || udp_service.listen_addr.ip().is_loopback())
+            && udp_service.upstream.ip().is_loopback()
+        {
+            tracing::warn!(
+                listen_port = udp_service.listen_port,
+                upstream = %udp_service.upstream,
+                "udp service for 'self' has upstream pointing to its own listen port; an explicit upstream port should be specified"
+            );
+        }
+    }
+
     // Build domain registry and populate it from static config if present
     let registry = Arc::new(registry::DomainRegistry::with_routes(routes.clone()));
 
-    let proxy = proxy::Proxy::new(Arc::new(config.proxy.clone()), registry.clone());
+    let proxy = proxy::Proxy::new(Arc::new(proxy_config), registry.clone());
 
     tracing::info!(
-        mode = ?config.proxy.mode,
+        mode = ?proxy.config.mode,
         routes = registry.len(),
+        udp_services = proxy.config.udp_services.len(),
         telemetry = config.enable_telemetry,
         "bridge is running"
     );

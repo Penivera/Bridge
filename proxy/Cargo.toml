@@ -15,3 +15,7 @@ smart-default.workspace = true
 url.workspace = true
 bytes = "1.12.1"
 futures = "0.3.34"
+crossbeam-deque = "0.8.8"
+socket2 = "0.6.5"
+serde_json.workspace = true
+serde_yaml.workspace = true

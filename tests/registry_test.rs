@@ -2,22 +2,13 @@ use registry::{DomainRegistry, Node, Route};
 use std::collections::HashMap;
 
 fn entry(node: &str, addr: &str) -> Route {
-    Route::new(
-        None,
-        Node {
-            node_id: node.to_string(),
-            address: addr.parse().unwrap(),
-        },
-    )
+    Route::new(None, Node::new(node, addr.parse().unwrap()))
 }
 
 fn entry_with_upstream(upstream: &str, node: &str, addr: &str) -> Route {
     Route::new(
         Some(upstream.parse().unwrap()),
-        Node {
-            node_id: node.to_string(),
-            address: addr.parse().unwrap(),
-        },
+        Node::new(node, addr.parse().unwrap()),
     )
 }
 
