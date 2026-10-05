@@ -27,8 +27,30 @@ pub struct Config {
     pub services: Vec<Service>,
     #[serde(default)]
     pub udp_services: Vec<UdpServiceConfig>,
+    pub discovery: DiscoveryConfig,
+    pub ipc: IpcConfig,
     #[serde(skip)]
     pub loaded_from: Option<std::path::PathBuf>,
+}
+
+#[derive(Clone, Debug, SmartDefault, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct DiscoveryConfig {
+    #[default(true)]
+    pub enabled: bool,
+    #[default("/var/run/docker.sock".to_string())]
+    pub docker_socket: String,
+    #[default("self".to_string())]
+    pub default_node_id: String,
+}
+
+#[derive(Clone, Debug, SmartDefault, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct IpcConfig {
+    #[default(true)]
+    pub enabled: bool,
+    #[default("/tmp/bridge.sock".to_string())]
+    pub socket_path: String,
 }
 
 #[derive(Clone, Debug, SmartDefault, Deserialize, Serialize, PartialEq)]

@@ -1,0 +1,28 @@
+enable_telemetry: false
+
+logger:
+  level: "INFO"
+  format: "text"
+  target: "stderr"
+  ansi: true
+
+proxy:
+  mode: "Direct"
+  listeners:
+    - "http"
+  redirect_http: false
+  http_addr: "127.0.0.1:80"
+  routing: "direct"
+
+nodes:
+  - id: "self"
+    endpoint: "127.0.0.1:80"
+
+services:
+  - url: "http://akirs.test"
+    node_id: "self"
+    upstream: "127.0.0.1:8000"
+
+  - url: "http://cfx.test"
+    node_id: "self"
+    upstream: "127.0.0.1:3000"

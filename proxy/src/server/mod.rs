@@ -140,7 +140,7 @@ impl Proxy {
                 coordinator.broadcast_and_wait(reason, std::time::Duration::from_secs(10)).await;
                 subsystem_tasks.shutdown().await;
             }
-            res = subsystem_tasks.join_next() => {
+            res = subsystem_tasks.join_next(), if !subsystem_tasks.is_empty() => {
                 if let Some(result) = res {
                     match result {
                         Ok(Err(e)) => {

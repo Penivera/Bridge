@@ -22,6 +22,8 @@ sentry = "0.36"
 sentry-tracing = "0.36"
 serde_yaml = "0.9.34"
 serde_json = "1.0.140"
+bollard = "0.21.1"
+futures-util = "0.3.31"
 
 [dependencies]
 clap = { version = "4.6.6", features = ["derive"] }
@@ -38,6 +40,8 @@ toml = {workspace = true}
 tracing = { workspace = true }
 url = { workspace = true }
 tracing-subscriber = {workspace = true}
+bollard = { workspace = true }
+futures-util = { workspace = true }
 
 
 [[bin]]
