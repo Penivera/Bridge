@@ -84,7 +84,7 @@ def sync_toc():
 
     # Reconvert to PDF
     print("Re-converting DOCX to PDF...")
-    cmd = ["libreoffice", "--headless", "--convert-to", "pdf", DOCX_PATH]
+    cmd = ["libreoffice", "--headless", "--convert-to", "pdf", DOCX_PATH, "--outdir", str(ROOT_DIR / "reports")]
     res = subprocess.run(cmd, capture_output=True, text=True)
     if res.returncode != 0:
         print("LibreOffice error:", res.stderr)
