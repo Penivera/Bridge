@@ -29,9 +29,9 @@ TEAL       = "#13678A"   # accents, active state
 TEAL_LT    = "#D9E8EC"   # fills for accent boxes
 SLATE      = "#45596C"   # secondary boxes
 SLATE_LT   = "#E3E8ED"   # secondary fills
-SLATE_DK   = "#2C3A45"   # dark text on light fills
-INK        = "#1A1F24"   # near-black text
-MUTED      = "#6B7A85"   # axis text, captions
+SLATE_DK   = "#1E293B"   # dark high-contrast text on light fills
+INK        = "#0F172A"   # near-black text
+MUTED      = "#1E293B"   # high-contrast axis text, captions (replaces low-contrast grey)
 HAIRLINE   = "#C5CED4"   # thin separators
 AMBER      = "#B8860B"   # warnings / open questions
 CRIMSON    = "#A02C2C"   # failures / dead nodes
@@ -66,10 +66,12 @@ def figure(name: str, w: float = 12, h: float = 7):
 
 def title(fig, text: str, sub: str | None = None, num: str | None = None):
     """Top-left title block with optional subtitle and artifact number."""
-    fig.text(0.04, 0.96, text, fontsize=15, weight="bold", color=NAVY,
+    text_clean = text.replace("—", ":")
+    fig.text(0.04, 0.96, text_clean, fontsize=15.5, weight="bold", color=NAVY,
              ha="left", va="top")
     if sub:
-        fig.text(0.04, 0.92, sub, fontsize=9.5, color=MUTED, ha="left",
+        sub_clean = sub.replace("—", ";")
+        fig.text(0.04, 0.92, sub_clean, fontsize=9.6, color=SLATE_DK, ha="left",
                  va="top", style="italic")
     if num:
         fig.text(0.96, 0.96, num, fontsize=9, color=HAIRLINE, ha="right",
@@ -77,27 +79,42 @@ def title(fig, text: str, sub: str | None = None, num: str | None = None):
 
 
 def footer(fig, text: str = "BRIDGE · Personal Architecture Doc · Peniel Ben · v0.4"):
-    fig.text(0.04, 0.015, text, fontsize=7.6, color=MUTED, ha="left", va="bottom")
-    fig.text(0.96, 0.015, "Living Document", fontsize=7.6, color=MUTED,
+    fig.text(0.04, 0.015, text, fontsize=7.6, color=SLATE_DK, ha="left", va="bottom")
+    fig.text(0.96, 0.015, "Living Document", fontsize=7.6, color=SLATE_DK,
              ha="right", va="bottom", style="italic")
 
 
 # --- Primitive drawing ------------------------------------------------------
 def box(x, y, w, h, label, *, fill=SLATE_LT, edge=SLATE, tcolor=INK,
-        radius=1.2, lw=1.2, fontsize=10, weight="normal", sub=None,
-        halign="center", sub_size=8):
+        radius=1.2, lw=1.2, fontsize=10.5, weight="normal", sub=None,
+        halign="center", sub_size=8.8, sub_color=None):
     """Rounded rectangle with centered label. Supports an optional sub-line."""
     ax = _ax()
     p = FancyBboxPatch((x, y), w, h, boxstyle=f"round,pad=0.02,rounding_size={radius}",
                        linewidth=lw, edgecolor=edge, facecolor=fill,
                        mutation_aspect=0.08, zorder=2)
     ax.add_patch(p)
-    cy = y + h/2 + (1.4 if sub else 0)
+    if sub:
+        n_lines_label = label.count("\n") + 1
+        n_lines_sub = sub.count("\n") + 1
+        if h >= 16:
+            cy = y + h * 0.65
+            sub_y = y + h * 0.32
+        else:
+            shift = 0.8 + 0.5 * n_lines_label
+            cy = y + h/2 + shift
+            sub_gap = 1.6 + 0.85 * (n_lines_label + n_lines_sub)
+            sub_y = cy - sub_gap
+    else:
+        cy = y + h/2
+
     ax.text(x + w/2, cy, label, ha=halign if halign != "center" else "center",
             va="center", fontsize=fontsize, weight=weight, color=tcolor, zorder=3)
     if sub:
-        ax.text(x + w/2, cy - 2.5, sub, ha="center", va="center", fontsize=sub_size,
-                color=MUTED, style="italic", zorder=3)
+        is_dark = fill in (NAVY, PALETTE["navy"], CRIMSON, PALETTE["crimson"])
+        scolor = sub_color or (WHITE if is_dark else SLATE_DK)
+        ax.text(x + w/2, sub_y, sub, ha="center", va="center", fontsize=sub_size,
+                color=scolor, style="italic", zorder=3)
     return p
 
 
@@ -116,18 +133,20 @@ def diamond(x, y, w, h, label, *, fill=TEAL_LT, edge=TEAL,
 
 
 def circle(x, y, d, label, *, fill=TEAL_LT, edge=TEAL, tcolor=SLATE_DK,
-           lw=1.2, fontsize=9, sub=None, sub_size=7.5):
+           lw=1.2, fontsize=9.5, sub=None, sub_size=8.2, sub_color=None):
     """Circular node. (x, y) is top-left of the bounding box of the circle."""
     ax = _ax()
     c = mpatches.Circle((x + d/2, y + d/2), d/2, facecolor=fill,
                         edgecolor=edge, linewidth=lw, zorder=2)
     ax.add_patch(c)
-    cy = y + d/2 + (0.8 if sub else 0)
+    cy = y + d/2 + (0.9 if sub else 0)
     ax.text(x + d/2, cy, label, ha="center", va="center", fontsize=fontsize,
             color=tcolor, weight="bold", zorder=3)
     if sub:
-        ax.text(x + d/2, cy - 2.2, sub, ha="center", va="center", fontsize=sub_size,
-                color=MUTED, style="italic", zorder=3)
+        is_dark = fill in (NAVY, PALETTE["navy"], CRIMSON, PALETTE["crimson"])
+        scolor = sub_color or (WHITE if is_dark else SLATE_DK)
+        ax.text(x + d/2, cy - 2.4, sub, ha="center", va="center", fontsize=sub_size,
+                color=scolor, style="italic", zorder=3)
     return c
 
 
@@ -143,7 +162,7 @@ def arrow(p1, p2, *, color=SLATE_DK, lw=1.3, ls="-", style="-|>",
     return a
 
 
-def label(x, y, text, *, color=MUTED, fontsize=8.5, ha="center", va="center",
+def label(x, y, text, *, color=NAVY, fontsize=9.2, ha="center", va="center",
           weight="normal", style="italic", rotation=0):
     """Free-floating text label."""
     _ax().text(x, y, text, ha=ha, va=va, fontsize=fontsize, color=color,
@@ -162,10 +181,10 @@ def legend(items=None, x: float = 3, y: float = 4.2, w: float = 24, h: float = 1
     ax_active = _ax()
     box_(x, y, w, h, fill=WHITE, edge=HAIRLINE, radius=0.6, lw=0.8)
     if title:
-        ax_active.text(x + w/2, y + h - 1.6, title, fontsize=8.2, color=SLATE_DK,
+        ax_active.text(x + w/2, y + h - 1.5, title, fontsize=9.2, color=NAVY,
                        weight="bold", ha="center", va="top", zorder=3)
     n = max(len(items), 1)
-    top_offset = 3.5 if title else 1.6
+    top_offset = 4.8 if title else 1.8
     available_h = h - top_offset - 1.0
     spacing = available_h / max(n - 1, 1) if n > 1 else 0
     ly = y + h - top_offset
@@ -174,13 +193,13 @@ def legend(items=None, x: float = 3, y: float = 4.2, w: float = 24, h: float = 1
         lab = item[1]
         is_line = len(item) > 2 and item[2] == "line"
         if is_line:
-            ax_active.plot([x + 1.8, x + 3.8], [ly, ly], color=color, lw=1.2, ls="--", zorder=3)
+            ax_active.plot([x + 1.8, x + 4.2], [ly, ly], color=color, lw=1.4, ls="--", zorder=3)
         else:
-            sw = mpatches.Rectangle((x + 1.8, ly - 0.6), 1.6, 1.2, facecolor=color,
+            sw = mpatches.Rectangle((x + 1.8, ly - 0.7), 1.8, 1.4, facecolor=color,
                                     edgecolor=HAIRLINE if color == WHITE else "none",
                                     linewidth=0.5, zorder=3)
             ax_active.add_patch(sw)
-        ax_active.text(x + 4.2, ly, lab, fontsize=7.2, color=SLATE_DK,
+        ax_active.text(x + 4.8, ly, lab, fontsize=8.6, color=SLATE_DK,
                        ha="left", va="center", zorder=3)
         ly -= spacing
 

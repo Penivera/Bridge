@@ -25,22 +25,22 @@ FINAL_PDF = str(ROOT_DIR / "reports" / "SIWES_Technical_Report_Peniel_Ben.pdf")
 
 # Map of media image filename to source image on disk
 IMAGE_REPLACEMENTS = {
-    "media/image1.png": "report_figures/fig2_1_akirs_hierarchy.png",
-    "media/image2.png": "report_figures/fig2_2_jrb_modernization.png",
-    "media/image3.png": "report_figures/fig3_2_data_cleaner_pipeline.png",
-    "media/image4.png": "report_figures/fig3_3_recon_engine_pipeline.png",
-    "media/image5.png": "report_figures/fig3_4_ai_assistant_guardrails.png",
-    "media/image6.png": "report_figures/fig3_1_datacenter_network.png",
-    "media/image7.png": "docs/assets/04_deployment_diagram.png",
-    "media/image8.png": "docs/assets/01_system_context.png",
-    "media/image9.png": "docs/assets/02_architecture_c4.png",
-    "media/image10.png": "docs/assets/11_proxy_handoff_separation.png",
-    "media/image11.png": "docs/assets/09_proxy_modes_architecture.png",
-    "media/image12.png": "docs/assets/10_seq_sni_handoff_routing.png",
-    "media/image13.png": "docs/assets/13_concurrency_scaling_architecture.png",
-    "media/image14.png": "report_figures/fig4_8_gossip_convergence.png",
-    "media/image15.png": "report_figures/fig4_10_failover_recovery.png",
-    "media/image16.png": "report_figures/fig4_9_throughput_latency.png",
+    "media/image1.png": str(ROOT_DIR / "report_figures" / "fig2_1_akirs_hierarchy.png"),
+    "media/image2.png": str(ROOT_DIR / "report_figures" / "fig2_2_jrb_modernization.png"),
+    "media/image3.png": str(ROOT_DIR / "report_figures" / "fig3_2_data_cleaner_pipeline.png"),
+    "media/image4.png": str(ROOT_DIR / "report_figures" / "fig3_3_recon_engine_pipeline.png"),
+    "media/image5.png": str(ROOT_DIR / "report_figures" / "fig3_4_ai_assistant_guardrails.png"),
+    "media/image6.png": str(ROOT_DIR / "report_figures" / "fig3_1_datacenter_network.png"),
+    "media/image7.png": str(ROOT_DIR / "docs" / "assets" / "04_deployment_diagram.png"),
+    "media/image8.png": str(ROOT_DIR / "docs" / "assets" / "01_system_context.png"),
+    "media/image9.png": str(ROOT_DIR / "docs" / "assets" / "02_architecture_c4.png"),
+    "media/image10.png": str(ROOT_DIR / "docs" / "assets" / "11_proxy_handoff_separation.png"),
+    "media/image11.png": str(ROOT_DIR / "docs" / "assets" / "09_proxy_modes_architecture.png"),
+    "media/image12.png": str(ROOT_DIR / "docs" / "assets" / "10_seq_sni_handoff_routing.png"),
+    "media/image13.png": str(ROOT_DIR / "docs" / "assets" / "13_concurrency_scaling_architecture.png"),
+    "media/image14.png": str(ROOT_DIR / "report_figures" / "fig4_8_gossip_convergence.png"),
+    "media/image15.png": str(ROOT_DIR / "report_figures" / "fig4_10_failover_recovery.png"),
+    "media/image16.png": str(ROOT_DIR / "report_figures" / "fig4_9_throughput_latency.png"),
 }
 
 def update_docx_media_and_layout():
@@ -84,13 +84,15 @@ def update_docx_media_and_layout():
                     a_exts[0].set('cx', str(TARGET_WIDTH_EMU))
                     a_exts[0].set('cy', str(target_height_emu))
 
-    temp_docx = "scratch/temp_modified.docx"
+    scratch_dir = ROOT_DIR / "scratch"
+    scratch_dir.mkdir(exist_ok=True)
+    temp_docx = str(scratch_dir / "temp_modified.docx")
     doc.save(temp_docx)
     print(f"Saved layout adjustments to {temp_docx}")
 
     # 3. Replace media images inside the docx zip archive
     out_docx = FINAL_DOCX
-    temp_zip = "scratch/temp_zip.docx"
+    temp_zip = str(scratch_dir / "temp_zip.docx")
 
     with zipfile.ZipFile(temp_docx, 'r') as zin, zipfile.ZipFile(temp_zip, 'w', compression=zipfile.ZIP_DEFLATED) as zout:
         for item in zin.infolist():
@@ -114,7 +116,7 @@ def convert_to_pdf():
     print("Converting DOCX to PDF via LibreOffice...")
     cmd = [
         "libreoffice", "--headless", "--convert-to", "pdf",
-        FINAL_DOCX, "--outdir", "."
+        FINAL_DOCX, "--outdir", str(ROOT_DIR / "reports")
     ]
     res = subprocess.run(cmd, capture_output=True, text=True)
     if res.returncode != 0:
