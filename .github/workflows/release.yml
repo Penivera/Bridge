@@ -74,6 +74,19 @@ jobs:
           # Single checksum manifest covering every asset in the release.
           cat bridge-*.tar.gz.sha256 > sha256sums.txt
 
+          cat > notes.md <<'EOF'
+          Automated release from push to `main` (commit ${GITHUB_SHA}).
+
+          Static musl binaries - run on virtually any Linux (glibc or musl), no shared library dependencies:
+          - `x86_64-unknown-linux-musl` - Intel/AMD 64-bit
+          - `aarch64-unknown-linux-musl` - ARM 64-bit (AWS Graviton, Raspberry Pi 4+, Ampere, etc.)
+
+          Install with:
+          ```sh
+          curl -fsSL https://raw.githubusercontent.com/Penivera/Bridge/main/scripts/install.sh | sh
+          ```
+          EOF
+
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "release $TAG already exists; uploading assets"
             gh release upload "$TAG" bridge-*.tar.gz sha256sums.txt --clobber
@@ -81,16 +94,6 @@ jobs:
             gh release create "$TAG" \
               --target main \
               --title "BRIDGE v${VERSION} (build ${GITHUB_SHA::8})" \
-              --notes "Automated release from push to \`main\` (commit \`${GITHUB_SHA}\`).
-
-Static musl binaries — run on virtually any Linux (glibc or musl), no shared library dependencies:
-- \`x86_64-unknown-linux-musl\` — Intel/AMD 64-bit
-- \`aarch64-unknown-linux-musl\` — ARM 64-bit (AWS Graviton, Raspberry Pi 4+, Ampere, etc.)
-
-Install with:
-\`\`\`sh
-curl -fsSL https://raw.githubusercontent.com/Penivera/Bridge/main/scripts/install.sh | sh
-\`\`\`
-" \
+              --notes-file notes.md \
               bridge-*.tar.gz sha256sums.txt
           fi
