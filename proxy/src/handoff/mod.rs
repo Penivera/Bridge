@@ -95,13 +95,14 @@ pub async fn handle_handoff_connection(
         }
     };
 
-    let target_addr = route.target_addr_with_fallback(default_routing);
+    let target_node = route.select_node_for_client(client_addr.ip(), &domain);
+    let target_addr = route.target_addr_for_client(client_addr.ip(), &domain, default_routing);
     tracing::debug!(
         client = %client_addr,
         domain = %domain,
-        node = %route.node.node_id,
+        node = %target_node.node_id,
         target = %target_addr,
-        routing = ?route.node.routing.unwrap_or(default_routing),
+        routing = ?target_node.routing.unwrap_or(default_routing),
         "handoff: forwarding connection"
     );
 
@@ -120,7 +121,7 @@ pub async fn handle_handoff_connection(
 
     // If PROXY protocol v2 is enabled (either explicitly on the target node or via global default),
     // prepend the binary PROXY v2 header before streaming application bytes.
-    if route.node.should_send_proxy_protocol(send_proxy_protocol) {
+    if target_node.should_send_proxy_protocol(send_proxy_protocol) {
         let local_addr = client_stream.local_addr().unwrap_or(target_addr);
         let ppv2_header = encode_proxy_v2(client_addr, local_addr);
         target_stream.write_all(&ppv2_header).await?;

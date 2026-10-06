@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Install — BRIDGE</title>
+  <meta name="description" content="Install the BRIDGE daemon on Linux or macOS with a single command, or manually from GitHub releases.">
+  <link rel="icon" type="image/png" href="assets/favicon.png">
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="wordmark" href="index.html"><img src="assets/favicon.png" alt="" aria-hidden="true">BRIDGE</a>
+      <button class="nav-toggle" aria-label="Toggle navigation" aria-expanded="false">
+        <span></span><span></span>
+      </button>
+      <nav class="site-nav" aria-label="Primary">
+        <ul>
+          <li class="nav-item has-dropdown">
+            <a href="docs/getting-started.html" class="nav-docs-parent">Docs</a>
+            <ul class="dropdown">
+              <li><a href="docs/getting-started.html">Getting started</a></li>
+              <li><a href="docs/architecture.html">Architecture</a></li>
+              <li><a href="docs/configuration.html">Configuration</a></li>
+              <li><a href="docs/operations.html">Operations</a></li>
+            </ul>
+          </li>
+          <li class="nav-item"><a href="install.html">Install</a></li>
+          <li class="nav-item"><a href="https://github.com/bridgemesh/bridge">GitHub</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <div class="container docs-main">
+      <div class="page-head">
+        <h1>Install BRIDGE</h1>
+        <p class="lead">One command per node. The installer detects your platform, verifies the download, and sets up the daemon as a systemd service.</p>
+      </div>
+
+      <h2 id="quick-install">Quick install</h2>
+      <div class="cmd-bar">
+        <span class="prompt" aria-hidden="true">$</span>
+        <code id="install-cmd">curl -fsSL https://bridgemesh.space/install.sh | sh</code>
+        <button class="copy-btn" type="button" data-copy-target="#install-cmd">Copy</button>
+      </div>
+      <p class="muted">
+        Run this on every node you want in the fleet. The installer re-executes itself
+        through <code>sudo</code> when it needs root for system paths. As with any
+        piped installer, review the script first — it is plain POSIX shell, published
+        in the <a href="https://github.com/bridgemesh/bridge">GitHub repository</a>.
+      </p>
+
+      <h2 id="what-it-does">What the installer does</h2>
+      <ol>
+        <li>Detects your OS and CPU architecture and maps them to a release target triple.</li>
+        <li>Resolves the release version (the latest GitHub release, unless pinned).</li>
+        <li>Downloads the release tarball and the published <code>sha256sums.txt</code> into a temporary directory.</li>
+        <li>Verifies the SHA-256 checksum of the tarball — an unverified binary is never installed.</li>
+        <li>Installs the <code>bridge</code> binary to <code>/usr/local/bin</code> (mode 0755).</li>
+        <li>On Linux with root: creates a <code>bridge</code> system user, creates <code>/etc/bridge</code> (0750, root:bridge), and writes a minimal standalone <code>bridge.toml</code> — only if none exists. Your existing config is never overwritten.</li>
+        <li>On systemd systems: writes <code>/etc/systemd/system/bridge.service</code>, runs <code>daemon-reload</code>, and enables and starts the service.</li>
+        <li>Prints a summary with the install location, config path, and next steps.</li>
+      </ol>
+
+      <h2 id="requirements">Requirements</h2>
+      <ul>
+        <li>Linux on x86_64 or aarch64 for a full service install (macOS x86_64/aarch64 binaries are installed for manual runs).</li>
+        <li>systemd is optional — without it, the installer prints how to run the daemon manually.</li>
+        <li>Root (or sudo) for installing to system paths, creating the service user, binding ports 80/443, and configuring WireGuard. The systemd unit grants <code>CAP_NET_BIND_SERVICE</code> and <code>CAP_NET_ADMIN</code> so the daemon does not run as full root.</li>
+        <li><code>curl</code> and <code>tar</code> available on the host.</li>
+      </ul>
+
+      <h2 id="env-vars">Installer environment variables</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Variable</th><th>Default</th><th>Purpose</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>BRIDGE_REPO</code></td><td><code>bridgemesh/bridge</code></td><td>GitHub repository to download releases from.</td></tr>
+            <tr><td><code>BRIDGE_VERSION</code></td><td><code>latest</code></td><td>Release tag to install; <code>latest</code> queries the GitHub API.</td></tr>
+            <tr><td><code>INSTALL_DIR</code></td><td><code>/usr/local/bin</code></td><td>Directory the <code>bridge</code> binary is installed into.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2 id="manual-install">Manual install</h2>
+      <p>If you prefer not to run the script, install from a GitHub release by hand:</p>
+      <div class="codeblock">
+        <button class="copy-btn" type="button" data-copy-target="#manual-steps">Copy</button>
+<pre id="manual-steps"><code><span class="c"># 1. Download the tarball and checksums for your platform</span>
+curl -fsSLO https://github.com/bridgemesh/bridge/releases/download/&lt;version&gt;/bridge-&lt;version&gt;-x86_64-unknown-linux-gnu.tar.gz
+curl -fsSLO https://github.com/bridgemesh/bridge/releases/download/&lt;version&gt;/sha256sums.txt
+
+<span class="c"># 2. Verify the checksum (use: shasum -a 256 -c on macOS)</span>
+grep x86_64-unknown-linux-gnu.tar.gz sha256sums.txt | sha256sum -c -
+
+<span class="c"># 3. Extract and install the binary</span>
+tar -xzf bridge-&lt;version&gt;-x86_64-unknown-linux-gnu.tar.gz
+sudo cp bridge /usr/local/bin/bridge
+sudo chmod 0755 /usr/local/bin/bridge</code></pre>
+      </div>
+      <p>Then create a minimal configuration at <code>/etc/bridge/bridge.toml</code>:</p>
+      <div class="codeblock">
+        <button class="copy-btn" type="button" data-copy-target="#manual-config">Copy</button>
+<pre id="manual-config"><code>enable_telemetry = false
+
+[proxy]
+mode = "Direct"
+listeners = ["http"]
+http_addr = "0.0.0.0:80"
+
+[dashboard]
+enabled = true
+listen_addr = "127.0.0.1:9090"
+
+[logger]
+level = "INFO"
+format = "text"</code></pre>
+      </div>
+      <p>And start the daemon:</p>
+      <div class="codeblock">
+        <button class="copy-btn" type="button" data-copy-target="#manual-run">Copy</button>
+<pre id="manual-run"><code>bridge --config /etc/bridge/bridge.toml</code></pre>
+      </div>
+
+      <h2 id="verify">Verify it works</h2>
+      <p>Check the daemon over its IPC socket:</p>
+      <div class="codeblock">
+        <button class="copy-btn" type="button" data-copy-target="#verify-cmd">Copy</button>
+<pre id="verify-cmd"><code>bridge status</code></pre>
+      </div>
+      <p>
+        Then open the embedded operations dashboard at <code>http://127.0.0.1:9090</code>.
+        The dashboard binds to loopback by default, so it is only reachable from the node
+        itself unless you change <code>listen_addr</code>.
+      </p>
+      <div class="note">
+        <strong>Next:</strong> follow <a href="docs/getting-started.html">Getting started</a> to add
+        your first route and join a second node to the mesh.
+      </div>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-grid">
+      <div>
+        <a class="wordmark" href="index.html"><img src="assets/favicon.png" alt="" aria-hidden="true">BRIDGE</a>
+        <p class="muted">A single Rust daemon that turns a fleet of VPS nodes into one resilient system.</p>
+      </div>
+      <nav aria-label="Documentation">
+        <h4>Docs</h4>
+        <ul>
+          <li><a href="docs/getting-started.html">Getting started</a></li>
+          <li><a href="docs/architecture.html">Architecture</a></li>
+          <li><a href="docs/configuration.html">Configuration</a></li>
+          <li><a href="docs/operations.html">Operations</a></li>
+        </ul>
+      </nav>
+      <nav aria-label="Project">
+        <h4>Project</h4>
+        <ul>
+          <li><a href="install.html">Install</a></li>
+          <li><a href="https://github.com/bridgemesh/bridge">GitHub</a></li>
+        </ul>
+      </nav>
+    </div>
+    <div class="container footer-base">bridgemesh.space</div>
+  </footer>
+
+  <script src="assets/site.js"></script>
+</body>
+</html>

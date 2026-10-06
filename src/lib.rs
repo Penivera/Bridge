@@ -1,3 +1,13 @@
+pub use cluster;
+pub mod auth;
+pub mod cli;
 pub mod core;
+pub mod daemon;
+pub mod dashboard;
 pub mod discovery;
+pub mod failover;
+pub mod handoff;
 pub mod ipc;
+pub use mesh;
+pub use proxy;
+pub use registry;

@@ -8,4 +8,5 @@ arc-swap = "1"
 tracing.workspace = true
 serde.workspace = true
 url.workspace = true
+ring = "0.17"
 

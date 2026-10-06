@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Architecture — BRIDGE docs</title>
+  <meta name="description" content="BRIDGE internals: the mesh layer, SWIM gossip membership, bully leader election, proxy modes, handoff tiers, and failure behavior.">
+  <link rel="icon" type="image/png" href="../assets/favicon.png">
+  <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="wordmark" href="../index.html"><img src="../assets/favicon.png" alt="" aria-hidden="true">BRIDGE</a>
+      <button class="nav-toggle" aria-label="Toggle navigation" aria-expanded="false">
+        <span></span><span></span>
+      </button>
+      <nav class="site-nav" aria-label="Primary">
+        <ul>
+          <li class="nav-item has-dropdown">
+            <a href="getting-started.html" class="nav-docs-parent">Docs</a>
+            <ul class="dropdown">
+              <li><a href="getting-started.html">Getting started</a></li>
+              <li><a href="architecture.html">Architecture</a></li>
+              <li><a href="configuration.html">Configuration</a></li>
+              <li><a href="operations.html">Operations</a></li>
+            </ul>
+          </li>
+          <li class="nav-item"><a href="../install.html">Install</a></li>
+          <li class="nav-item"><a href="https://github.com/bridgemesh/bridge">GitHub</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <div class="container docs-main">
+      <div class="page-head">
+        <p class="breadcrumb"><a href="getting-started.html">Docs</a><span class="sep">/</span>Architecture</p>
+        <h1>Architecture</h1>
+        <p class="lead">One daemon per node. An encrypted mesh between them. A single elected leader at the edge.</p>
+      </div>
+
+      <h2 id="components">Components</h2>
+      <p>Every node runs the same single Rust binary. Inside it, these subsystems cooperate:</p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Component</th><th>Role</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Daemon core</td><td>Owns startup, configuration, the shutdown coordinator, and state persistence across restarts.</td></tr>
+            <tr><td>Mesh layer</td><td>WireGuard L3 overlay between nodes (e.g. 10.8.0.x). Keys are auto-generated if not configured.</td></tr>
+            <tr><td>Gossip membership</td><td>SWIM-style protocol: nodes discover and health-track each other and propagate state changes, converging in seconds.</td></tr>
+            <tr><td>Leader election</td><td>Bully algorithm with configurable per-node priorities; exactly one leader holds the ingress entrypoint.</td></tr>
+            <tr><td>Registry</td><td>The fleet's shared view of nodes, routes, and service state.</td></tr>
+            <tr><td>Proxy</td><td>Ingress engine running in one of three modes: L7 Direct, L4 SNI passthrough, or Managed Coolify.</td></tr>
+            <tr><td>Discovery</td><td>Watches the Docker socket; labeled containers become routes automatically alongside static config routes.</td></tr>
+            <tr><td>Failover duplicator</td><td>Replicates marked workloads to peer nodes on failure via the container driver, with failback and cooldowns.</td></tr>
+            <tr><td>IPC</td><td>Unix socket (<code>/tmp/bridge.sock</code>) the <code>bridge</code> CLI uses to talk to the running daemon.</td></tr>
+            <tr><td>Dashboard</td><td>Embedded operations console — dark, Cloudflare-inspired — on <code>127.0.0.1:9090</code> by default, with a JSON API and WebSocket event stream.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2 id="lifecycle">Node lifecycle</h2>
+      <p>Gossip moves every node through a small state machine:</p>
+      <div class="lifecycle">
+        <span class="pill green">Alive</span>
+        <span class="arrow">&rarr;</span>
+        <span class="pill amber">Suspected</span>
+        <span class="arrow">&rarr;</span>
+        <span class="pill red">Dead</span>
+        <span class="arrow">&rarr;</span>
+        <span class="pill accent">Recovered</span>
+      </div>
+      <p>
+        A node that stops responding is first marked <strong>Suspected</strong>; continued
+        silence marks it <strong>Dead</strong> and the fleet routes around it. When it comes
+        back it is marked <strong>Recovered</strong> and rejoins routing. Because this spreads
+        by gossip rather than central polling, membership converges in seconds without a
+        single point of failure in the control plane itself.
+      </p>
+
+      <h2 id="leader">The leader's role</h2>
+      <p>
+        The bully algorithm elects the highest-priority alive node as leader. The leader
+        holds the fleet's ingress entrypoint — the Cloudflare Tunnel, the DNS failover
+        target, or the floating IP, depending on the configured handoff tier. All nodes
+        still serve traffic: the leader terminates ingress and routes requests across the
+        mesh to whichever node hosts the target service.
+      </p>
+
+      <h2 id="request-flow">Request flow</h2>
+      <div class="diagram" role="img" aria-label="Request flow: a client request reaches the leader through DNS or the tunnel, the proxy selects a route by consistent hash, and the request is forwarded over the WireGuard mesh to the upstream on any node.">
+        <div class="d-flow">
+          <div class="d-box">
+            <span class="d-title">Client</span>
+            <span class="d-sub">https://app.example.com</span>
+          </div>
+          <div class="d-arrow" aria-hidden="true"></div>
+          <div class="d-box leader">
+            <span class="d-title">Leader ingress</span>
+            <span class="d-sub">DNS / Cloudflare Tunnel</span>
+          </div>
+          <div class="d-arrow" aria-hidden="true"></div>
+          <div class="d-box">
+            <span class="d-title">Proxy</span>
+            <span class="d-sub">route lookup &middot; consistent hash</span>
+          </div>
+          <div class="d-arrow" aria-hidden="true"></div>
+          <div class="d-box">
+            <span class="d-title">Upstream</span>
+            <span class="d-sub">any node &middot; via mesh 10.8.0.x</span>
+          </div>
+        </div>
+        <p class="diagram-caption">
+          Multi-target services are spread by consistent-hash routing with session
+          affinity, so a client keeps landing on the same upstream while targets are stable.
+        </p>
+      </div>
+
+      <h2 id="proxy-modes">The three proxy modes</h2>
+      <h3>L7 Direct</h3>
+      <p>
+        BRIDGE acts as an HTTP reverse proxy per hostname. It terminates the connection,
+        matches the hostname to a route, and forwards to the upstream over the mesh. This is
+        the default mode and the one the examples use.
+      </p>
+      <h3>L4 SNI Passthrough</h3>
+      <p>
+        BRIDGE reads the TLS SNI hostname and forwards the raw stream without terminating
+        TLS — certificates live on the backends. Use this when you need end-to-end TLS to
+        your applications.
+      </p>
+      <h3>Managed Coolify</h3>
+      <p>
+        BRIDGE delegates ingress to an existing Coolify installation on the fleet instead of
+        proxying itself, while still providing mesh, membership, election, and failover.
+      </p>
+
+      <h2 id="handoff">Ingress handoff tiers</h2>
+      <p>
+        Handoff decides how the public entrypoint survives a leader change. Configure it
+        under <code>[handoff]</code> — see <a href="configuration.html">Configuration</a>.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Tier</th><th>How it works</th><th>When to use it</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>none</code></td>
+              <td>No handoff; the entrypoint is fixed to one node.</td>
+              <td>Single-node or standalone deployments.</td>
+            </tr>
+            <tr>
+              <td><code>dns</code></td>
+              <td>Health-checked DNS failover moves the record to the new leader.</td>
+              <td>Any provider with a supported DNS setup; simple and portable.</td>
+            </tr>
+            <tr>
+              <td><code>tunnel</code></td>
+              <td>The leader holds the Cloudflare Tunnel; on re-election the new leader takes it over.</td>
+              <td>No public ports or floating IPs available; nodes behind NAT.</td>
+            </tr>
+            <tr>
+              <td><code>floating_ip</code></td>
+              <td>A floating IP is reassigned to the new leader.</td>
+              <td>Providers that offer reassignable floating IPs.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2 id="failure">Failure scenarios</h2>
+      <h3>Leader loss</h3>
+      <p>
+        Gossip marks the leader Suspected, then Dead. The remaining nodes run the bully
+        election; the highest-priority alive node wins and performs the configured handoff —
+        taking over the Cloudflare Tunnel or moving DNS / the floating IP. Traffic resumes
+        against the new leader without manual intervention.
+      </p>
+      <h3>Backend or node failure</h3>
+      <p>
+        Dead targets drop out of the consistent-hash ring, so requests redistribute to the
+        remaining targets of a service. For services marked for replication, the failover
+        duplicator spawns the workload on a healthy peer via the container driver, subject to
+        placement rules and cooldowns. When the original node recovers, failback is manual
+        or automatic depending on the configured <code>failback_mode</code>.
+      </p>
+      <h3>Graceful shutdown</h3>
+      <p>
+        On shutdown the daemon's shutdown coordinator drains work in order and persists
+        state, so a restart resumes from the last known fleet state rather than a cold start.
+      </p>
+
+      <div class="docs-nav-footer">
+        <span>&larr; <a href="getting-started.html">Getting started</a></span>
+        <span><a href="configuration.html">Configuration</a> &rarr;</span>
+      </div>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-grid">
+      <div>
+        <a class="wordmark" href="../index.html"><img src="../assets/favicon.png" alt="" aria-hidden="true">BRIDGE</a>
+        <p class="muted">A single Rust daemon that turns a fleet of VPS nodes into one resilient system.</p>
+      </div>
+      <nav aria-label="Documentation">
+        <h4>Docs</h4>
+        <ul>
+          <li><a href="getting-started.html">Getting started</a></li>
+          <li><a href="architecture.html">Architecture</a></li>
+          <li><a href="configuration.html">Configuration</a></li>
+          <li><a href="operations.html">Operations</a></li>
+        </ul>
+      </nav>
+      <nav aria-label="Project">
+        <h4>Project</h4>
+        <ul>
+          <li><a href="../install.html">Install</a></li>
+          <li><a href="https://github.com/bridgemesh/bridge">GitHub</a></li>
+        </ul>
+      </nav>
+    </div>
+    <div class="container footer-base">bridgemesh.space</div>
+  </footer>
+
+  <script src="../assets/site.js"></script>
+</body>
+</html>

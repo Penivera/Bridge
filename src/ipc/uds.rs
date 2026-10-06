@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
@@ -9,6 +9,9 @@ use registry::{DomainRegistry, Node, Route};
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
+use tokio::sync::RwLock;
+
+use crate::failover::FailoverTrigger;
 
 /// Inbound control requests sent over the Unix domain socket.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -26,6 +29,28 @@ pub enum IpcRequest {
     },
     RemoveRoute {
         domain: String,
+    },
+    ClusterStatus,
+    InspectDomain {
+        domain: String,
+        #[serde(default)]
+        client_ip: Option<IpAddr>,
+    },
+    ListReplicas,
+    TriggerReplication {
+        node_id: String,
+    },
+    Failback {
+        domain: String,
+    },
+    ListUsers,
+    CreateUser {
+        username: String,
+        password: String,
+    },
+    SetPassword {
+        username: String,
+        password: String,
     },
 }
 
@@ -46,17 +71,49 @@ pub enum IpcResponse {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(untagged)]
 pub enum IpcData {
-    Pong {
-        message: String,
-    },
     Status {
         version: String,
         uptime_secs: u64,
         routes_count: usize,
         proxy_mode: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        local_node_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        is_leader: Option<bool>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        active_replicas_count: Option<usize>,
     },
     Routes {
         routes: HashMap<String, RouteInfo>,
+    },
+    Cluster {
+        local_node_id: String,
+        current_leader: Option<String>,
+        is_leader: bool,
+        peers: Vec<PeerInfo>,
+    },
+    InspectResult {
+        domain: String,
+        targets: Vec<TargetInfo>,
+        total_targets: usize,
+        has_hash_ring: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        client_selected_target: Option<SocketAddr>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        client_selected_node_id: Option<String>,
+    },
+    Replicas {
+        replicas: Vec<ReplicaInfo>,
+    },
+    ReplicationResult {
+        target_node: String,
+        spawned_count: usize,
+        message: String,
+    },
+    FailbackResult {
+        domain: String,
+        restored: bool,
+        message: String,
     },
     RouteResult {
         domain: String,
@@ -64,6 +121,19 @@ pub enum IpcData {
         registered: Option<bool>,
         #[serde(skip_serializing_if = "Option::is_none")]
         removed: Option<bool>,
+    },
+    Pong {
+        pong: bool,
+        message: String,
+    },
+    Users {
+        users: Vec<String>,
+    },
+    UserResult {
+        username: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        created: Option<bool>,
+        message: String,
     },
     Message {
         message: String,
@@ -88,12 +158,55 @@ impl From<&Route> for RouteInfo {
     }
 }
 
+/// Serializable representation of a cluster peer node.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PeerInfo {
+    pub node_id: String,
+    pub mesh_ip: IpAddr,
+    pub endpoint: SocketAddr,
+    pub is_leader: bool,
+    pub priority: u32,
+}
+
+/// Serializable representation of a backend target node.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TargetInfo {
+    pub node_id: String,
+    pub address: SocketAddr,
+    pub mesh_address: Option<SocketAddr>,
+}
+
+/// Serializable representation of an active duplicated service workload.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ReplicaInfo {
+    pub domain: String,
+    pub origin_node_id: String,
+    pub assigned_node_id: String,
+    pub failback_mode: String,
+    pub failback_cooldown_secs: u64,
+    pub spawned_addr: SocketAddr,
+    pub original_target_addr: Option<SocketAddr>,
+}
+
+/// Shared runtime state for dashboard user management over IPC.
+#[derive(Clone)]
+pub struct UserManagementState {
+    pub auth: Arc<RwLock<Option<Arc<crate::auth::AuthManager>>>>,
+    pub config_json: Arc<RwLock<Option<serde_json::Value>>>,
+    pub config_path: Arc<RwLock<Option<PathBuf>>>,
+}
+
 /// Unix Domain Socket IPC server for local host and container control.
 pub struct IpcServer {
     socket_path: PathBuf,
     registry: Arc<DomainRegistry>,
     proxy_mode: ProxyMode,
     start_time: Instant,
+    cluster: Arc<RwLock<Option<Arc<cluster::ClusterController>>>>,
+    duplicator: Arc<RwLock<Option<Arc<dyn FailoverTrigger>>>>,
+    auth: Arc<RwLock<Option<Arc<crate::auth::AuthManager>>>>,
+    config_json: Arc<RwLock<Option<serde_json::Value>>>,
+    config_path: Arc<RwLock<Option<PathBuf>>>,
 }
 
 impl IpcServer {
@@ -108,7 +221,48 @@ impl IpcServer {
             registry,
             proxy_mode,
             start_time: Instant::now(),
+            cluster: Arc::new(RwLock::new(None)),
+            duplicator: Arc::new(RwLock::new(None)),
+            auth: Arc::new(RwLock::new(None)),
+            config_json: Arc::new(RwLock::new(None)),
+            config_path: Arc::new(RwLock::new(None)),
         }
+    }
+
+    /// Returns a shared handle to wire the `ClusterController` once initialized.
+    pub fn cluster_handle(&self) -> Arc<RwLock<Option<Arc<cluster::ClusterController>>>> {
+        self.cluster.clone()
+    }
+
+    /// Returns a shared handle to wire the `WorkloadDuplicator` once initialized.
+    pub fn duplicator_handle(&self) -> Arc<RwLock<Option<Arc<dyn FailoverTrigger>>>> {
+        self.duplicator.clone()
+    }
+
+    /// Returns a shared handle to wire the `AuthManager` once initialized.
+    pub fn auth_handle(&self) -> Arc<RwLock<Option<Arc<crate::auth::AuthManager>>>> {
+        self.auth.clone()
+    }
+
+    /// Returns a shared handle for the raw configuration document view.
+    pub fn config_view_handle(&self) -> Arc<RwLock<Option<serde_json::Value>>> {
+        self.config_json.clone()
+    }
+
+    /// Returns a shared handle for the configuration file path.
+    pub fn config_path_handle(&self) -> Arc<RwLock<Option<PathBuf>>> {
+        self.config_path.clone()
+    }
+
+    /// Replaces the configuration view/path slots with shared ones (used by
+    /// the daemon to keep the IPC user manager and dashboard in sync).
+    pub fn set_config_slots(
+        &mut self,
+        json: Arc<RwLock<Option<serde_json::Value>>>,
+        path: Arc<RwLock<Option<PathBuf>>>,
+    ) {
+        self.config_json = json;
+        self.config_path = path;
     }
 
     /// Resolves and binds the Unix domain socket.
@@ -116,11 +270,10 @@ impl IpcServer {
     /// Automatically removes stale socket files before binding and creates parent directories.
     pub fn bind(socket_path: impl AsRef<Path>) -> std::io::Result<UnixListener> {
         let path = socket_path.as_ref();
-        if let Some(parent) = path.parent() {
-            if !parent.as_os_str().is_empty() && !parent.exists() {
+        if let Some(parent) = path.parent()
+            && !parent.as_os_str().is_empty() && !parent.exists() {
                 std::fs::create_dir_all(parent)?;
             }
-        }
         if path.exists() {
             let _ = std::fs::remove_file(path);
         }
@@ -168,6 +321,11 @@ impl IpcServer {
         let registry = self.registry.clone();
         let proxy_mode = self.proxy_mode;
         let start_time = self.start_time;
+        let cluster = self.cluster.clone();
+        let duplicator = self.duplicator.clone();
+        let auth = self.auth.clone();
+        let config_json = self.config_json.clone();
+        let config_path = self.config_path.clone();
 
         loop {
             tokio::select! {
@@ -179,8 +337,15 @@ impl IpcServer {
                     match accept_res {
                         Ok((stream, _)) => {
                             let reg = registry.clone();
+                            let c_slot = cluster.clone();
+                            let d_slot = duplicator.clone();
+                            let user_state = UserManagementState {
+                                auth: auth.clone(),
+                                config_json: config_json.clone(),
+                                config_path: config_path.clone(),
+                            };
                             tokio::spawn(async move {
-                                if let Err(err) = handle_ipc_connection(stream, reg, proxy_mode, start_time).await {
+                                if let Err(err) = handle_ipc_connection(stream, reg, proxy_mode, start_time, c_slot, d_slot, user_state).await {
                                     tracing::debug!(%err, "IPC client connection closed with error");
                                 }
                             });
@@ -216,6 +381,9 @@ async fn handle_ipc_connection(
     registry: Arc<DomainRegistry>,
     proxy_mode: ProxyMode,
     start_time: Instant,
+    cluster_slot: Arc<RwLock<Option<Arc<cluster::ClusterController>>>>,
+    duplicator_slot: Arc<RwLock<Option<Arc<dyn FailoverTrigger>>>>,
+    user_state: UserManagementState,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let (reader, mut writer) = stream.into_split();
     let mut lines = BufReader::new(reader).lines();
@@ -230,17 +398,43 @@ async fn handle_ipc_connection(
             Ok(request) => match request {
                 IpcRequest::Ping => IpcResponse::Ok {
                     data: IpcData::Pong {
+                        pong: true,
                         message: "pong".to_string(),
                     },
                 },
-                IpcRequest::Status => IpcResponse::Ok {
-                    data: IpcData::Status {
-                        version: env!("CARGO_PKG_VERSION").to_string(),
-                        uptime_secs: start_time.elapsed().as_secs(),
-                        routes_count: registry.len(),
-                        proxy_mode: format!("{:?}", proxy_mode),
-                    },
-                },
+                IpcRequest::Status => {
+                    let mut local_node_id = None;
+                    let mut is_leader = None;
+                    let cluster_guard = cluster_slot.read().await;
+                    if let Some(ctrl) = cluster_guard.as_ref() {
+                        local_node_id = Some(ctrl.local_node.node_id.clone());
+                        let election = ctrl.election_state.read().await;
+                        is_leader = Some(
+                            election
+                                .current_leader
+                                .as_ref()
+                                .is_some_and(|l| l.node_id == ctrl.local_node.node_id),
+                        );
+                    }
+
+                    let mut active_replicas_count = None;
+                    let dup_guard = duplicator_slot.read().await;
+                    if let Some(dup) = dup_guard.as_ref() {
+                        active_replicas_count = Some(dup.list_replicas().await.len());
+                    }
+
+                    IpcResponse::Ok {
+                        data: IpcData::Status {
+                            version: env!("CARGO_PKG_VERSION").to_string(),
+                            uptime_secs: start_time.elapsed().as_secs(),
+                            routes_count: registry.len(),
+                            proxy_mode: format!("{:?}", proxy_mode),
+                            local_node_id,
+                            is_leader,
+                            active_replicas_count,
+                        },
+                    }
+                }
                 IpcRequest::ListRoutes => {
                     let snapshot = registry.snapshot();
                     let routes = snapshot
@@ -279,6 +473,193 @@ async fn handle_ipc_connection(
                         },
                     }
                 }
+                IpcRequest::ClusterStatus => {
+                    let cluster_guard = cluster_slot.read().await;
+                    match cluster_guard.as_ref() {
+                        Some(ctrl) => {
+                            let election = ctrl.election_state.read().await;
+                            let leader_node_id = election.current_leader.as_ref().map(|l| l.node_id.clone());
+                            let is_leader = leader_node_id.as_deref() == Some(&ctrl.local_node.node_id);
+
+                            let mut peers = Vec::new();
+                            // Add self
+                            peers.push(PeerInfo {
+                                node_id: ctrl.local_node.node_id.clone(),
+                                mesh_ip: ctrl.local_node.mesh_ip,
+                                endpoint: ctrl.local_node.endpoint,
+                                is_leader,
+                                priority: ctrl.local_node.priority,
+                            });
+
+                            // Add remote peers
+                            let peers_map = ctrl.peers.read().await;
+                            for p in peers_map.values() {
+                                let peer_is_leader = leader_node_id.as_deref() == Some(&p.node_id);
+                                peers.push(PeerInfo {
+                                    node_id: p.node_id.clone(),
+                                    mesh_ip: p.mesh_ip,
+                                    endpoint: p.endpoint,
+                                    is_leader: peer_is_leader,
+                                    priority: p.priority,
+                                });
+                            }
+
+                            IpcResponse::Ok {
+                                data: IpcData::Cluster {
+                                    local_node_id: ctrl.local_node.node_id.clone(),
+                                    current_leader: leader_node_id,
+                                    is_leader,
+                                    peers,
+                                },
+                            }
+                        }
+                        None => IpcResponse::Error {
+                            message: "Cluster mesh not enabled or active on this node".to_string(),
+                        },
+                    }
+                }
+                IpcRequest::InspectDomain { domain, client_ip } => {
+                    match registry.lookup(&domain) {
+                        Some(route) => {
+                            let targets: Vec<TargetInfo> = route
+                                .targets
+                                .iter()
+                                .map(|n| TargetInfo {
+                                    node_id: n.node_id.clone(),
+                                    address: n.address,
+                                    mesh_address: n.mesh_address,
+                                })
+                                .collect();
+
+                            let has_hash_ring = route.ring.is_some();
+                            let (client_selected_target, client_selected_node_id) =
+                                if let Some(ip) = client_ip {
+                                    let target = route.select_node_for_client(ip, &domain);
+                                    (Some(target.address), Some(target.node_id.clone()))
+                                } else {
+                                    (None, None)
+                                };
+
+                            IpcResponse::Ok {
+                                data: IpcData::InspectResult {
+                                    domain,
+                                    total_targets: targets.len(),
+                                    targets,
+                                    has_hash_ring,
+                                    client_selected_target,
+                                    client_selected_node_id,
+                                },
+                            }
+                        }
+                        None => IpcResponse::Error {
+                            message: format!("Route for domain '{domain}' not found in registry"),
+                        },
+                    }
+                }
+                IpcRequest::ListReplicas => {
+                    let dup_guard = duplicator_slot.read().await;
+                    let replicas = match dup_guard.as_ref() {
+                        Some(dup) => dup
+                            .list_replicas()
+                            .await
+                            .into_iter()
+                            .map(|d| ReplicaInfo {
+                                domain: d.domain,
+                                origin_node_id: d.origin_node_id,
+                                assigned_node_id: d.assigned_node_id,
+                                failback_mode: format!("{:?}", d.failback_mode),
+                                failback_cooldown_secs: d.failback_cooldown_secs,
+                                spawned_addr: d.spawned_addr,
+                                original_target_addr: d.original_target_addr,
+                            })
+                            .collect(),
+                        None => Vec::new(),
+                    };
+
+                    IpcResponse::Ok {
+                        data: IpcData::Replicas { replicas },
+                    }
+                }
+                IpcRequest::TriggerReplication { node_id } => {
+                    let dup_guard = duplicator_slot.read().await;
+                    match dup_guard.as_ref() {
+                        Some(dup) => match dup.trigger_replication(&node_id).await {
+                            Ok(count) => IpcResponse::Ok {
+                                data: IpcData::ReplicationResult {
+                                    target_node: node_id.clone(),
+                                    spawned_count: count,
+                                    message: format!("Successfully spawned {count} replica service(s) for node '{node_id}'"),
+                                },
+                            },
+                            Err(err) => IpcResponse::Error {
+                                message: format!("Failed to replicate services for node '{node_id}': {err}"),
+                            },
+                        },
+                        None => IpcResponse::Error {
+                            message: "Service failover duplicator is not active on this node".to_string(),
+                        },
+                    }
+                }
+                IpcRequest::Failback { domain } => {
+                    let dup_guard = duplicator_slot.read().await;
+                    match dup_guard.as_ref() {
+                        Some(dup) => match dup.trigger_failback(&domain).await {
+                            Ok(true) => IpcResponse::Ok {
+                                data: IpcData::FailbackResult {
+                                    domain: domain.clone(),
+                                    restored: true,
+                                    message: format!("Failback executed. Service '{domain}' restored to origin node."),
+                                },
+                            },
+                            Ok(false) => IpcResponse::Error {
+                                message: format!("No active replica found for domain '{domain}'"),
+                            },
+                            Err(err) => IpcResponse::Error {
+                                message: format!("Failed to execute failback for domain '{domain}': {err}"),
+                            },
+                        },
+                        None => IpcResponse::Error {
+                            message: "Service failover duplicator is not active on this node".to_string(),
+                        },
+                    }
+                }
+                IpcRequest::ListUsers => {
+                    let auth_guard = user_state.auth.read().await;
+                    match auth_guard.as_ref() {
+                        Some(auth) => IpcResponse::Ok {
+                            data: IpcData::Users {
+                                users: auth.list_users().await,
+                            },
+                        },
+                        None => IpcResponse::Error {
+                            message: "Authentication manager is not active on this node".to_string(),
+                        },
+                    }
+                }
+                IpcRequest::CreateUser { username, password } => {
+                    match handle_user_upsert(&user_state, &username, &password, false).await {
+                        Ok(created) => IpcResponse::Ok {
+                            data: IpcData::UserResult {
+                                username: username.clone(),
+                                created: Some(created),
+                                message: format!("User '{username}' created"),
+                            },
+                        },
+                        Err(message) => IpcResponse::Error { message },
+                    }
+                }
+                IpcRequest::SetPassword { username, password } => {
+                    match handle_user_upsert(&user_state, &username, &password, true).await {
+                        Ok(_) => IpcResponse::Ok {
+                            data: IpcData::UserResult {
+                                username: username.clone(),
+                                created: None,
+                                message: format!("Password updated for user '{username}'"),
+                            },
+                        },
+                        Err(message) => IpcResponse::Error { message },
+                    }
+                }
             },
             Err(err) => IpcResponse::Error {
                 message: format!("invalid JSON request: {err}"),
@@ -292,6 +673,108 @@ async fn handle_ipc_connection(
     }
 
     Ok(())
+}
+
+/// Hashes a password, updates the config file's `[auth]` section, and refreshes
+/// the runtime auth manager. Returns whether the user was newly created.
+async fn handle_user_upsert(
+    user_state: &UserManagementState,
+    username: &str,
+    password: &str,
+    must_exist: bool,
+) -> Result<bool, String> {
+    use crate::auth::AuthManager;
+
+    crate::auth::validate_username(username).map_err(|e| e.to_string())?;
+    let hash = AuthManager::hash_password(password).map_err(|e| e.to_string())?;
+
+    let auth = {
+        let guard = user_state.auth.read().await;
+        guard
+            .as_ref()
+            .cloned()
+            .ok_or_else(|| "Authentication manager is not active on this node".to_string())?
+    };
+
+    if must_exist {
+        let exists = auth.list_users().await.iter().any(|u| u == username);
+        if !exists {
+            return Err(format!("user '{username}' does not exist"));
+        }
+    } else {
+        let exists = auth.list_users().await.iter().any(|u| u == username);
+        if exists {
+            return Err(format!(
+                "user '{username}' already exists; use 'bridge user passwd' to change the password"
+            ));
+        }
+    }
+
+    // Load the current configuration document (runtime view or the file itself).
+    let path = {
+        let guard = user_state.config_path.read().await;
+        guard
+            .clone()
+            .ok_or_else(|| "no configuration file loaded; cannot persist users".to_string())?
+    };
+
+    let mut doc = {
+        let guard = user_state.config_json.read().await;
+        if let Some(view) = guard.as_ref() {
+            view.clone()
+        } else {
+            let raw = std::fs::read_to_string(&path)
+                .map_err(|e| format!("cannot read config file {}: {e}", path.display()))?;
+            let is_yaml = matches!(
+                path.extension().and_then(|e| e.to_str()),
+                Some("yaml" | "yml")
+            );
+            if is_yaml {
+                serde_yaml::from_str(&raw).map_err(|e| format!("invalid YAML config: {e}"))?
+            } else {
+                toml::from_str(&raw).map_err(|e| format!("invalid TOML config: {e}"))?
+            }
+        }
+    };
+
+    let (updated, created) = crate::auth::apply_user_to_config_doc(doc, username, &hash);
+    doc = updated;
+
+    let is_yaml = matches!(
+        path.extension().and_then(|e| e.to_str()),
+        Some("yaml" | "yml")
+    );
+    let serialized = if is_yaml {
+        serde_yaml::to_string(&doc).map_err(|e| format!("cannot encode YAML: {e}"))?
+    } else {
+        toml::to_string(&doc).map_err(|e| format!("cannot encode TOML: {e}"))?
+    };
+
+    // Reject documents the daemon itself would refuse to load.
+    if is_yaml {
+        crate::core::config::Config::from_yaml_str(&serialized)
+            .map_err(|e| format!("invalid configuration: {e}"))?;
+    } else {
+        crate::core::config::Config::from_toml_str(&serialized)
+            .map_err(|e| format!("invalid configuration: {e}"))?;
+    }
+
+    // Atomic-ish write: same-directory temp file + rename.
+    let tmp_path = path.with_extension("tmp");
+    std::fs::write(&tmp_path, &serialized)
+        .map_err(|e| format!("failed to write config: {e}"))?;
+    std::fs::rename(&tmp_path, &path).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp_path);
+        format!("failed to replace config: {e}")
+    })?;
+
+    *user_state.config_json.write().await = Some(doc);
+
+    auth.upsert_user(username, hash)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(created)
 }
 
 /// Client for connecting to the Bridge IPC Unix domain socket.
@@ -328,7 +811,7 @@ impl IpcClient {
     pub async fn ping(&mut self) -> Result<String, Box<dyn std::error::Error>> {
         match self.send(&IpcRequest::Ping).await? {
             IpcResponse::Ok {
-                data: IpcData::Pong { message },
+                data: IpcData::Pong { message, .. },
             } => Ok(message),
             IpcResponse::Error { message } => Err(message.into()),
             other => Err(format!("unexpected response: {:?}", other).into()),
@@ -393,6 +876,139 @@ impl IpcClient {
             IpcResponse::Ok {
                 data: IpcData::RouteResult { removed, .. },
             } => Ok(removed.unwrap_or(false)),
+            IpcResponse::Error { message } => Err(message.into()),
+            other => Err(format!("unexpected response: {:?}", other).into()),
+        }
+    }
+
+    /// Retrieves cluster membership, leader status, and mesh peers.
+    pub async fn cluster_status(&mut self) -> Result<IpcData, Box<dyn std::error::Error>> {
+        match self.send(&IpcRequest::ClusterStatus).await? {
+            IpcResponse::Ok { data } => Ok(data),
+            IpcResponse::Error { message } => Err(message.into()),
+        }
+    }
+
+    /// Inspects domain route targets, consistent hash ring status, and composite affinity.
+    pub async fn inspect_domain(
+        &mut self,
+        domain: impl Into<String>,
+        client_ip: Option<IpAddr>,
+    ) -> Result<IpcData, Box<dyn std::error::Error>> {
+        match self
+            .send(&IpcRequest::InspectDomain {
+                domain: domain.into(),
+                client_ip,
+            })
+            .await?
+        {
+            IpcResponse::Ok { data } => Ok(data),
+            IpcResponse::Error { message } => Err(message.into()),
+        }
+    }
+
+    /// Lists active duplicated workloads.
+    pub async fn list_replicas(&mut self) -> Result<Vec<ReplicaInfo>, Box<dyn std::error::Error>> {
+        match self.send(&IpcRequest::ListReplicas).await? {
+            IpcResponse::Ok {
+                data: IpcData::Replicas { replicas },
+            } => Ok(replicas),
+            IpcResponse::Error { message } => Err(message.into()),
+            other => Err(format!("unexpected response: {:?}", other).into()),
+        }
+    }
+
+    /// Triggers manual service replication for a node.
+    pub async fn trigger_replication(
+        &mut self,
+        node_id: impl Into<String>,
+    ) -> Result<(usize, String), Box<dyn std::error::Error>> {
+        match self
+            .send(&IpcRequest::TriggerReplication {
+                node_id: node_id.into(),
+            })
+            .await?
+        {
+            IpcResponse::Ok {
+                data:
+                    IpcData::ReplicationResult {
+                        spawned_count,
+                        message,
+                        ..
+                    },
+            } => Ok((spawned_count, message)),
+            IpcResponse::Error { message } => Err(message.into()),
+            other => Err(format!("unexpected response: {:?}", other).into()),
+        }
+    }
+
+    /// Triggers manual failback for a duplicated service.
+    pub async fn failback(
+        &mut self,
+        domain: impl Into<String>,
+    ) -> Result<(bool, String), Box<dyn std::error::Error>> {
+        match self
+            .send(&IpcRequest::Failback {
+                domain: domain.into(),
+            })
+            .await?
+        {
+            IpcResponse::Ok {
+                data: IpcData::FailbackResult { restored, message, .. },
+            } => Ok((restored, message)),
+            IpcResponse::Error { message } => Err(message.into()),
+            other => Err(format!("unexpected response: {:?}", other).into()),
+        }
+    }
+
+    /// Lists configured dashboard users.
+    pub async fn list_users(&mut self) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+        match self.send(&IpcRequest::ListUsers).await? {
+            IpcResponse::Ok {
+                data: IpcData::Users { users },
+            } => Ok(users),
+            IpcResponse::Error { message } => Err(message.into()),
+            other => Err(format!("unexpected response: {:?}", other).into()),
+        }
+    }
+
+    /// Creates a dashboard user with the given password.
+    pub async fn create_user(
+        &mut self,
+        username: impl Into<String>,
+        password: impl Into<String>,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        match self
+            .send(&IpcRequest::CreateUser {
+                username: username.into(),
+                password: password.into(),
+            })
+            .await?
+        {
+            IpcResponse::Ok {
+                data: IpcData::UserResult { message, .. },
+            } => Ok(message),
+            IpcResponse::Error { message } => Err(message.into()),
+            other => Err(format!("unexpected response: {:?}", other).into()),
+        }
+    }
+
+    /// Updates a dashboard user's password.
+    pub async fn set_password(
+        &mut self,
+        username: impl Into<String>,
+        password: impl Into<String>,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        match self
+            .send(&IpcRequest::SetPassword {
+                username: username.into(),
+                password: password.into(),
+            })
+            .await?
+        {
+            IpcResponse::Ok {
+                data: IpcData::UserResult { message, .. },
+            } => Ok(message),
             IpcResponse::Error { message } => Err(message.into()),
             other => Err(format!("unexpected response: {:?}", other).into()),
         }

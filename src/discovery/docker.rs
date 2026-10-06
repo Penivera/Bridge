@@ -98,22 +98,20 @@ pub fn parse_docker_labels(
 
     // Check Traefik service port
     for (k, v) in labels {
-        if k.starts_with("traefik.http.services.") && k.ends_with(".loadbalancer.server.port") {
-            if let Ok(p) = v.trim().parse::<u16>() {
+        if k.starts_with("traefik.http.services.") && k.ends_with(".loadbalancer.server.port")
+            && let Ok(p) = v.trim().parse::<u16>() {
                 port = p;
                 break;
             }
-        }
     }
 
     // Check explicit bridge/coolify port overrides
     for key in &["bridge.port", "coolify.port"] {
-        if let Some(val) = labels.get(*key) {
-            if let Ok(p) = val.trim().parse::<u16>() {
+        if let Some(val) = labels.get(*key)
+            && let Ok(p) = val.trim().parse::<u16>() {
                 port = p;
                 break;
             }
-        }
     }
 
     let target_addr = SocketAddr::from(([127, 0, 0, 1], port));

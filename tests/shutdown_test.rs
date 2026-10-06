@@ -54,7 +54,11 @@ async fn test_shutdown_coordinator_broadcast_and_ack() {
 #[tokio::test]
 async fn test_state_finalizer_persists_file_and_signals_ack() {
     let temp_dir = std::env::temp_dir();
-    let state_file = temp_dir.join(format!("bridge-state-test-{}.json", std::process::id()));
+    let state_file = temp_dir.join(format!(
+        "bridge-state-test-{}-{}.json",
+        std::process::id(),
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+    ));
 
     let mut coordinator = ShutdownCoordinator::new(Some(state_file.clone()));
     let (state_rx, ack_tx) = coordinator.register_subsystem("state_finalizer");
@@ -121,7 +125,11 @@ async fn test_shutdown_ack_timeout_protection() {
 #[tokio::test]
 async fn test_proxy_run_with_coordinator_graceful_teardown() {
     let temp_dir = std::env::temp_dir();
-    let state_file = temp_dir.join(format!("bridge-proxy-state-{}.json", std::process::id()));
+    let state_file = temp_dir.join(format!(
+        "bridge-proxy-state-{}-{}.json",
+        std::process::id(),
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+    ));
 
     let mut coordinator = ShutdownCoordinator::new(Some(state_file.clone()));
 
@@ -161,6 +169,7 @@ async fn test_proxy_run_with_coordinator_graceful_teardown() {
     assert!(result.is_ok());
 
     // Verify state file was written and contains full state
+    tokio::time::sleep(Duration::from_millis(50)).await;
     let content = tokio::fs::read_to_string(&state_file).await.unwrap();
     let state: proxy::RuntimeState = serde_json::from_str(&content).expect("failed to deserialize runtime state");
     assert_eq!(state.proxy_mode, "Handoff");
@@ -173,7 +182,11 @@ async fn test_proxy_run_with_coordinator_graceful_teardown() {
 #[tokio::test]
 async fn test_runtime_discovered_route_captured_on_shutdown() {
     let temp_dir = std::env::temp_dir();
-    let state_file = temp_dir.join(format!("bridge-discovered-routes-{}.yaml", std::process::id()));
+    let state_file = temp_dir.join(format!(
+        "bridge-discovered-routes-{}-{}.yaml",
+        std::process::id(),
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+    ));
 
     let mut coordinator = ShutdownCoordinator::new(Some(state_file.clone()));
 

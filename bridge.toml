@@ -18,6 +18,14 @@ mode = "Direct"
 listeners = ["http"]
 redirect_http = false
 
+# Dashboard authentication (demo credentials: admin / admin)
+[auth]
+enabled = true
+
+[[auth.users]]
+username = "admin"
+password_hash = "$argon2id$v=19$m=65536,t=3,p=4$/Mw9sKec3sw52cQ9ezflnw$ELTH8lIYx6+26WGPFwuXFMbxZwIS+eKeC+AssoykWAQ"
+
 # Target nodes (WireGuard endpoints or target backends)
 [[nodes]]
 node_id = "httpbin-aws"

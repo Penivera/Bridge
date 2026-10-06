@@ -180,26 +180,26 @@ def fig06_node_bootstrap(out):
          dashed=True)
     _activation(fig, 10, y - 3.5, 12, color=PALETTE["teal"])
 
-    # gRPC peer discovery
+    # Raw UDP datagram peer discovery
     y = 59
     _timer(fig, y, "T₀+0.8s")
-    _msg(fig, 10, 32, y, "gRPC: GetPeerList()")
+    _msg(fig, 10, 32, y, "UDP: JoinRequest {id, pubkey, mesh_ip}")
     _activation(fig, 32, y, y - 4)
-    _msg(fig, 32, 10, y - 4, "peer list: {id, pubkey, endpoint, last_seen}",
+    _msg(fig, 32, 10, y - 4, "UDP: JoinResponse {active peers list}",
          dashed=True)
-    _note(fig, 21, y - 7.8, "Tonic gRPC over WireGuard",
-          color=PALETTE["amber"], w=19, h=3.0)
+    _note(fig, 21, y - 7.8, "Stateless UDP datagram (no gRPC)",
+          color=PALETTE["teal"], w=22, h=3.0)
 
     # Add dynamic peers
     y = 45
     _timer(fig, y, "T₀+1.5s")
     _msg(fig, 10, 52, y, "add WireGuard peers dynamically", color=PALETTE["teal"])
 
-    # Gossip broadcast
+    # UDP announcement
     y = 39
     _timer(fig, y, "T₀+2.0s")
-    _msg(fig, 32, 72, y, "gossip: NodeJoined(Node N)", color=PALETTE["teal"])
-    _msg(fig, 32, 90, y - 4, "gossip: NodeJoined(Node N)", color=PALETTE["teal"])
+    _msg(fig, 32, 72, y, "UDP: PeerAnnounce(Node N)", color=PALETTE["teal"])
+    _msg(fig, 32, 90, y - 4, "UDP: PeerAnnounce(Node N)", color=PALETTE["teal"])
 
     # Routing table digest exchange
     y = 28

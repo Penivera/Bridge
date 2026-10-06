@@ -34,19 +34,30 @@ impl Service<Request<IncomingBody>> for Proxy {
         };
         let this = self.clone();
         async move {
+            let started = std::time::Instant::now();
             let upstream = this.map_url_to_route(&host).await;
             match upstream {
                 Some(upstream) => {
                     let Some(addr) = upstream.upstream else {
+                        this.registry.record_request(&host, started.elapsed().as_millis() as u64, true);
                         return Ok(Response::new(Full::new(Bytes::from(format!(
                             "No upstream found for host {host}"
                         ))).map_err(|never| match never {}).boxed()));
                     };
-                    this.handle_request(req, addr.to_string()).await
+                    let result = this.handle_request(req, addr.to_string()).await;
+                    let is_error = match &result {
+                        Ok(resp) => resp.status().is_server_error(),
+                        Err(_) => true,
+                    };
+                    this.registry.record_request(&host, started.elapsed().as_millis() as u64, is_error);
+                    result
                 },
-                None => Ok(Response::new(Full::new(Bytes::from(format!(
-                    "No route found for host {host}"
-                ))).map_err(|never| match never {}).boxed())),
+                None => {
+                    this.registry.record_request(&host, started.elapsed().as_millis() as u64, true);
+                    Ok(Response::new(Full::new(Bytes::from(format!(
+                        "No route found for host {host}"
+                    ))).map_err(|never| match never {}).boxed()))
+                },
             }
         }
         .boxed()

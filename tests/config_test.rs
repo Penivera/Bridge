@@ -7,6 +7,7 @@ fn test_default_config_has_handoff_mode() {
     assert!(!config.enable_telemetry);
     assert_eq!(config.logger.level, tracing::Level::DEBUG);
     assert_eq!(config.proxy.mode, ProxyMode::Handoff);
+    assert_eq!(config.handoff.mode, bridge::core::config::HandoffMode::None);
     assert_eq!(config.sentry.environment.as_deref(), Some("production"));
     assert_eq!(config.sentry.sample_rate, 1.0);
 }
@@ -282,3 +283,32 @@ nodes:
     let _ = std::fs::remove_file(yaml_path);
     let _ = std::fs::remove_file(yml_path);
 }
+
+#[test]
+fn test_dashboard_config_defaults_and_override() {
+    let default_cfg = Config::default();
+    assert!(default_cfg.dashboard.enabled);
+    assert_eq!(default_cfg.dashboard.listen_addr, "127.0.0.1:9090".parse().unwrap());
+
+    let toml_data = r#"
+        [dashboard]
+        enabled = false
+        listen_addr = "0.0.0.0:8080"
+    "#;
+    let custom_cfg = Config::from_toml_str(toml_data).expect("parse custom dashboard config");
+    assert!(!custom_cfg.dashboard.enabled);
+    assert_eq!(custom_cfg.dashboard.listen_addr, "0.0.0.0:8080".parse().unwrap());
+}
+
+#[test]
+fn test_examples_demo_toml_parsing() {
+    let demo_path = std::path::Path::new("examples/demo.toml");
+    let config = Config::from_file(demo_path).expect("examples/demo.toml should parse cleanly");
+    assert!(config.dashboard.enabled);
+    assert_eq!(config.dashboard.listen_addr, "127.0.0.1:9090".parse().unwrap());
+    assert!(config.node.is_some());
+    assert_eq!(config.services.len(), 4);
+    assert_eq!(config.nodes.len(), 3);
+}
+
+

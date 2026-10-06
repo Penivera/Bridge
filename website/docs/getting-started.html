@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Getting started — BRIDGE docs</title>
+  <meta name="description" content="Install BRIDGE, run a standalone node with its first route, then join a second node to the mesh.">
+  <link rel="icon" type="image/png" href="../assets/favicon.png">
+  <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="wordmark" href="../index.html"><img src="../assets/favicon.png" alt="" aria-hidden="true">BRIDGE</a>
+      <button class="nav-toggle" aria-label="Toggle navigation" aria-expanded="false">
+        <span></span><span></span>
+      </button>
+      <nav class="site-nav" aria-label="Primary">
+        <ul>
+          <li class="nav-item has-dropdown">
+            <a href="getting-started.html" class="nav-docs-parent">Docs</a>
+            <ul class="dropdown">
+              <li><a href="getting-started.html">Getting started</a></li>
+              <li><a href="architecture.html">Architecture</a></li>
+              <li><a href="configuration.html">Configuration</a></li>
+              <li><a href="operations.html">Operations</a></li>
+            </ul>
+          </li>
+          <li class="nav-item"><a href="../install.html">Install</a></li>
+          <li class="nav-item"><a href="https://github.com/bridgemesh/bridge">GitHub</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <div class="container docs-main">
+      <div class="page-head">
+        <p class="breadcrumb"><a href="getting-started.html">Docs</a><span class="sep">/</span>Getting started</p>
+        <h1>Getting started</h1>
+        <p class="lead">From zero to a two-node mesh: install, configure a standalone node, add a route, then join a peer.</p>
+      </div>
+
+      <h2 id="install">1. Install the daemon</h2>
+      <p>Run the installer on every VPS you want in the fleet:</p>
+      <div class="codeblock">
+        <button class="copy-btn" type="button" data-copy-target="#gs-install">Copy</button>
+<pre id="gs-install"><code>curl -fsSL https://bridgemesh.space/install.sh | sh</code></pre>
+      </div>
+      <p>
+        The installer places the binary in <code>/usr/local/bin</code>, creates a
+        <code>bridge</code> system user and <code>/etc/bridge</code>, writes a minimal
+        config if none exists, and enables a systemd service. See
+        <a href="../install.html">Install</a> for details and manual installation.
+      </p>
+
+      <h2 id="standalone-config">2. Minimal standalone config</h2>
+      <p>
+        A single node runs fine on its own — omit the <code>[node]</code> section entirely
+        and BRIDGE operates in standalone mode. Edit <code>/etc/bridge/bridge.toml</code>:
+      </p>
+      <div class="codeblock">
+        <button class="copy-btn" type="button" data-copy-target="#gs-config">Copy</button>
+<pre id="gs-config"><code>enable_telemetry = false
+
+[proxy]
+mode = "Direct"            <span class="c"># Direct | SniPassthrough | Managed</span>
+listeners = ["http"]
+http_addr = "0.0.0.0:80"
+
+[dashboard]
+enabled = true
+listen_addr = "127.0.0.1:9090"
+
+[ipc]
+enabled = true
+socket_path = "/tmp/bridge.sock"
+
+[logger]
+level = "INFO"
+format = "text"</code></pre>
+      </div>
+      <p>
+        Configuration is auto-discovered from <code>./bridge.toml</code>, then
+        <code>$BRIDGE_CONFIG</code>, then <code>/etc/bridge/bridge.toml</code>. TOML and
+        YAML are both accepted.
+      </p>
+
+      <h2 id="first-route">3. Add your first route</h2>
+      <p>
+        Point a hostname at an upstream on this node by appending a
+        <code>[[services]]</code> entry:
+      </p>
+      <div class="codeblock">
+        <button class="copy-btn" type="button" data-copy-target="#gs-route">Copy</button>
+<pre id="gs-route"><code>[[services]]
+url = "https://app.example.com"
+node_id = "node-01"
+upstream = "127.0.0.1:3000"</code></pre>
+      </div>
+      <p>
+        In <code>Direct</code> mode the daemon reverse-proxies HTTP for that hostname to
+        the upstream. Routes can also come from Docker auto-discovery — labeled containers
+        become routes automatically when <code>[discovery]</code> is enabled.
+      </p>
+
+      <h2 id="run">4. Run it</h2>
+      <p>If you used the installer, the service is already running:</p>
+      <div class="codeblock">
+        <button class="copy-btn" type="button" data-copy-target="#gs-run">Copy</button>
+<pre id="gs-run"><code>systemctl status bridge
+bridge status</code></pre>
+      </div>
+      <p>Without systemd, run the daemon in the foreground:</p>
+      <div class="codeblock">
+        <button class="copy-btn" type="button" data-copy-target="#gs-run-manual">Copy</button>
+<pre id="gs-run-manual"><code>bridge --config /etc/bridge/bridge.toml</code></pre>
+      </div>
+
+      <h2 id="dashboard">5. Check the dashboard</h2>
+      <p>
+        Open <code>http://127.0.0.1:9090</code> on the node. The embedded operations
+        dashboard shows the node, its routes, and live events over a WebSocket stream.
+        It binds to loopback by default.
+      </p>
+
+      <h2 id="second-node">6. Add a second node</h2>
+      <p>
+        To turn standalone nodes into a fleet, give each node a cluster identity and tell
+        them about each other. On <strong>node-01</strong>:
+      </p>
+      <div class="codeblock">
+        <button class="copy-btn" type="button" data-copy-target="#gs-node1">Copy</button>
+<pre id="gs-node1"><code><span class="c"># This node's cluster identity</span>
+[node]
+id = "node-01"
+mesh_ip = "10.8.0.1"
+endpoint = "203.0.113.10:51820"
+listen_port = 51820
+priority = 100
+
+[[nodes]]
+node_id = "node-01"
+endpoint = "203.0.113.10:51820"</code></pre>
+      </div>
+      <p>
+        On <strong>node-02</strong>, use its own identity and list node-01 as a seed so
+        gossip has a starting point:
+      </p>
+      <div class="codeblock">
+        <button class="copy-btn" type="button" data-copy-target="#gs-node2">Copy</button>
+<pre id="gs-node2"><code>[node]
+id = "node-02"
+mesh_ip = "10.8.0.2"
+endpoint = "203.0.113.11:51820"
+listen_port = 51820
+priority = 50
+
+[[seeds]]
+endpoint = "203.0.113.10:51820"
+
+[[nodes]]
+node_id = "node-01"
+endpoint = "203.0.113.10:51820"</code></pre>
+      </div>
+      <p>
+        The WireGuard mesh comes up on the <code>10.8.0.x</code> overlay; keys are
+        auto-generated if not configured. The <code>priority</code> field feeds the bully
+        election — the highest-priority alive node becomes leader and holds the ingress
+        entrypoint. Restart both daemons after editing the config.
+      </p>
+
+      <h2 id="watch">7. Watch the fleet converge</h2>
+      <p>
+        Within seconds, gossip membership converges. Confirm from either node:
+      </p>
+      <div class="codeblock">
+        <button class="copy-btn" type="button" data-copy-target="#gs-cluster">Copy</button>
+<pre id="gs-cluster"><code>bridge cluster</code></pre>
+      </div>
+      <p>
+        Both nodes appear in the dashboard's nodes and mesh views, one marked as leader.
+        From here, pick an ingress <a href="architecture.html#handoff">handoff tier</a>,
+        tune <a href="configuration.html">configuration</a>, and learn the
+        <a href="operations.html">day-two operations</a>.
+      </p>
+
+      <div class="docs-nav-footer">
+        <span>&larr; <a href="../install.html">Install</a></span>
+        <span><a href="architecture.html">Architecture</a> &rarr;</span>
+      </div>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-grid">
+      <div>
+        <a class="wordmark" href="../index.html"><img src="../assets/favicon.png" alt="" aria-hidden="true">BRIDGE</a>
+        <p class="muted">A single Rust daemon that turns a fleet of VPS nodes into one resilient system.</p>
+      </div>
+      <nav aria-label="Documentation">
+        <h4>Docs</h4>
+        <ul>
+          <li><a href="getting-started.html">Getting started</a></li>
+          <li><a href="architecture.html">Architecture</a></li>
+          <li><a href="configuration.html">Configuration</a></li>
+          <li><a href="operations.html">Operations</a></li>
+        </ul>
+      </nav>
+      <nav aria-label="Project">
+        <h4>Project</h4>
+        <ul>
+          <li><a href="../install.html">Install</a></li>
+          <li><a href="https://github.com/bridgemesh/bridge">GitHub</a></li>
+        </ul>
+      </nav>
+    </div>
+    <div class="container footer-base">bridgemesh.space</div>
+  </footer>
+
+  <script src="../assets/site.js"></script>
+</body>
+</html>

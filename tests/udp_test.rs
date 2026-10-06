@@ -335,6 +335,7 @@ async fn test_proxy_run_handoff_with_udp() {
 
     let mut config = ProxyConfig::default();
     config.mode = proxy::core::enums::ProxyMode::Handoff;
+    config.listeners = vec![];
     config.udp_services = vec![UdpServiceConfig::new(listen_addr, upstream_addr)];
 
     let proxy = Proxy::new(Arc::new(config), Arc::new(DomainRegistry::new()));
@@ -342,6 +343,8 @@ async fn test_proxy_run_handoff_with_udp() {
     let proxy_task = tokio::spawn(async move {
         let _ = proxy.run().await;
     });
+
+    tokio::time::sleep(Duration::from_millis(50)).await;
 
     let client = UdpSocket::bind("127.0.0.1:0").await.unwrap();
     client.connect(listen_addr).await.unwrap();

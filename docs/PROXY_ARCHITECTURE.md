@@ -402,3 +402,170 @@ pub struct ProxyConfig {
 4. **Coolify Webhook / Gossip Integration:**  
    Coolify can notify the local Bridge daemon on container deploy/stop events via a lightweight localhost HTTP webhook (`POST /v1/routes`), instantly broadcasting route changes across the fleet.
 
+---
+
+## 9. Ingress Failover & High Availability (Tiers 1–3)
+
+To guarantee high availability without single points of failure at the ingress layer, Bridge supports multi-tiered ingress failover coordinated by the cluster's Bully Leader Election and Quorum state machine:
+
+### 9.1 Tier 1 — Single Ingress (`mode = "none"`)
+Default baseline mode where Bridge operates on the local host without initiating any external failover actions.
+
+### 9.2 Tier 2 — Cloudflare DNS API Failover (`mode = "dns"`)
+* **Mechanism:** When a node is elected cluster leader (or initializes as leader), it dispatches an asynchronous HTTP request to the Cloudflare API v4 (`api.cloudflare.com/client/v4`) to update the cluster's public entrypoint `A` or `AAAA` record to point to the leader's public IP address.
+* **Dynamic Discovery & Upsert:** If `record_id` is specified, it directly patches the record. If omitted, it automatically queries the zone's DNS records, locating existing entries to `PATCH` (or creating new ones via `POST` if absent), and skips unnecessary network calls if the record already matches.
+* **Zero-Downtime Teardown:** Integrates directly with the `ShutdownCoordinator` to send a clean shutdown acknowledgment (`subsystem: "dns_handoff"`).
+* **Environment Variable Resolution:** Secret credentials can be passed safely using `env:CF_API_TOKEN` and `env:CF_ZONE_ID`.
+
+```toml
+[handoff]
+mode = "dns"
+
+[handoff.dns]
+provider     = "cloudflare"
+zone_id      = "env:CF_ZONE_ID"
+record_name  = "bridge.example.com"
+api_token    = "env:CF_API_TOKEN"
+ttl          = 60
+proxied      = false
+```
+
+### 9.3 Tier 3 — Cloudflare Tunnel Handoff (`mode = "tunnel"`)
+* **Mechanism:** Spawns and supervises a `cloudflared` child process to establish an outbound, encrypted tunnel to Cloudflare Edge.
+* **Cold Standby vs. Warm Standby:** Supports cold standby (process runs strictly on the elected leader and terminates gracefully on demotion) or warm standby (runs continuously across all cluster nodes for instantaneous anycast edge failover).
+
+```toml
+[handoff]
+mode = "tunnel"
+
+[handoff.tunnel]
+token        = "env:CF_TUNNEL_TOKEN"
+warm_standby = false
+binary_path  = "cloudflared"
+```
+
+---
+
+## 10. Consistent Hashing & Session Affinity (360-Vnode Ring)
+
+When multiple instances of a service run across distinct cluster nodes for horizontal scaling or redundancy, Bridge uses a **Consistent Hash Ring** rather than naive round-robin:
+
+![Consistent Hash Ring Routing](assets/07_seq_request_routing.png)
+
+### 10.1 Token Distribution & 360 Virtual Nodes
+* **Virtual Nodes (`DEFAULT_VNODES_PER_NODE = 360`):** Each physical backend node is placed at 360 pseudo-random locations along the 64-bit ring $[0, 2^{64}-1]$. This prevents hotspotting and bounds load variance across nodes to within $\pm 10\text{--}15\%$ of ideal uniform distribution.
+* **Deterministic Hashing:** Tokens are derived using cryptographically strong SHA-256:
+  $$\text{token}_i = \text{u64::from\_be\_bytes}\left(\text{SHA256}\left(\text{node\_id} + \text{"\#"} + i\right)[0..8]\right)$$
+* **$O(\log V)$ Lookup:** Incoming requests locate their target node via binary search for the first token $\ge \text{token}_{\text{key}}$, wrapping around clockwise to index 0 on overflow.
+
+### 10.2 Session Affinity
+* **Composite Key:** $\text{SHA256}(\text{source\_ip} + \text{hostname})$.
+* **Stickiness Without State:** Consecutive requests from the same client IP to the same service route deterministically to the identical backend node without maintaining server-side session tables or sticky cookies.
+
+### 10.3 Minimal Key Redistribution
+* **$1/N$ Property:** When a node joins or leaves the pool, only $\approx \frac{1}{N}$ of client sessions migrate to new backends. Unaffected nodes experience zero key churn, ensuring minimal cache and connection disruption.
+
+---
+
+## 11. Workload Failover & Service Duplication (Approach A)
+
+When a node experiences hardware, OS, or network failure, Bridge can optionally duplicate and spawn containerized services onto surviving cluster nodes to maintain service availability:
+
+### 11.1 Leader-Orchestrated Spawning
+* **Single Coordinator:** Only the elected cluster leader initiates workload duplication upon receiving SWIM member failure events (`MemberEvent::Down`), completely preventing thundering-herd or duplicate container spawns.
+* **Pluggable Container Drivers:** Workload lifecycle operations are decoupled behind the `ContainerDriver` trait:
+  * `DockerContainerDriver`: Interacts directly with the local Docker daemon via the Unix socket (`/var/run/docker.sock`) using Bollard.
+  * `MockContainerDriver`: Fast, deterministic in-memory driver used for integration tests without requiring host Docker daemon or root permissions.
+
+### 11.2 Configuration & Service Opt-In
+Service duplication is configured per-service in `config.toml`:
+
+```toml
+[[services]]
+url = "http://api.example.com"
+node_id = "vm-02"
+upstream = "127.0.0.1:8080"
+
+[services.replicate]
+enabled = true
+image = "myorg/api:v1.0"
+env = ["PORT=8080", "MODE=replica"]
+container_port = 8080
+placement = "ring" # "ring" (default), "leader", or explicit "<node_id>"
+failback_mode = "preemptive" # "non_preemptive" (default), "preemptive", or "manual"
+failback_cooldown_secs = 15 # Cooldown period before preemptive failback
+```
+
+### 11.3 Placement Strategies
+1. **`placement = "ring"` (Default):** Selects a healthy surviving node using consistent hashing of the service domain name over the surviving node ring, ensuring even distribution across the fleet.
+2. **`placement = "leader"`:** Spawns the replica container directly on the elected cluster coordinator.
+3. **Explicit Node (`placement = "<node_id>"`):** Pinpoints an explicit warm-spare node for the duplicate.
+
+### 11.4 Configurable Failback & Recovery Modes
+When the failed node recovers and rejoins the cluster (`MemberEvent::Up`), Bridge handles workload restoration according to the configured `failback_mode`:
+
+1. **Non-Preemptive (`failback_mode = "non_preemptive"`, Default):**
+   * The duplicated workload continues running on the assigned failover node.
+   * Eliminates connection churn and avoids restarting workloads unnecessarily.
+
+2. **Preemptive (`failback_mode = "preemptive"`):**
+   * When the original node is detected as healthy, Bridge initiates a cooldown timer (`failback_cooldown_secs`).
+   * If the node remains healthy throughout the cooldown (preventing flapping), the route is seamlessly restored to the recovered node in the registry, and the temporary replica container is safely stopped.
+
+3. **Manual (`failback_mode = "manual"`):**
+   * Workload duplication remains active indefinitely until an operator explicitly triggers failback via IPC or API (`execute_failback`).
+   * Gives operators complete control over database consistency, state validation, and workload re-verification before traffic migration.
+
+### 11.5 Remote Workload Mesh Dispatch
+When the selected replacement node is a remote cluster peer, the leader transmits control messages over the encrypted WireGuard mesh:
+* `ClusterMessage::SpawnWorkload`: Orders the target peer to spawn the container image, bind ports, and register the route.
+* `ClusterMessage::WorkloadSpawned`: Target node confirms the bound port and readiness back to the leader.
+* `ClusterMessage::StopWorkload`: Orders the remote peer to stop and clean up the container during failback.
+
+---
+
+## 12. Fleet Observability, Operator CLI & Web Dashboard (Phase 9)
+
+Phase 9 completes the Bridge roadmap by providing comprehensive operator visibility, fleet inspection, live demo tooling, and an embedded web dashboard.
+
+### 12.1 Operator CLI Commands
+The Bridge CLI communicates with the running daemon over the local Unix Domain Socket (`/tmp/bridge.sock`):
+
+```bash
+# Daemon status & telemetry overview
+bridge status
+
+# Fleet cluster membership, leader role, and WireGuard mesh status
+bridge cluster
+
+# Deep-dive route inspection with consistent hash ring and session affinity mapping
+bridge inspect api.example.com --client-ip 192.168.1.100
+
+# View active duplicated/failover workloads
+bridge replicas
+
+# [LIVE DEMO] Simulate node failure and trigger service duplication on demand
+bridge replicate --node-id vm-02
+
+# [LIVE DEMO] Trigger manual failback to restore traffic to original node
+bridge failback api.example.com
+```
+
+### 12.2 Embedded Web Observability Dashboard
+When enabled in `config.toml` (`[dashboard] enabled = true`, `listen_addr = "127.0.0.1:9090"`), Bridge serves a zero-dependency, dark-themed management dashboard:
+
+* **URL:** `http://127.0.0.1:9090/` or `/ui`
+* **Real-Time Telemetry:** Live node ID, Leader badge, proxy mode, active routes count, replica count, and uptime.
+* **Cluster Mesh Table:** Node IDs, WireGuard overlay IPs, endpoints, leader/peer roles, and priorities.
+* **Route Distribution Table:** Registered domains, upstreams, primary targets, and 360-virtual-node consistent hash ring status.
+* **Active Replicas Table:** Duplicated services, origin nodes, assigned failover nodes, failback modes, and cooldown countdowns.
+* **Live Presentation Action Bar:** Interactive buttons allowing presenters to trigger service replication or execute failback directly from the browser with instant UI feedback.
+
+### 12.3 REST API Endpoints
+* `GET /healthz`: Liveness probe (`200 OK`, `ok`).
+* `GET /api/status`: JSON telemetry payload encompassing nodes, routes, cluster peers, and active replicas.
+* `POST /api/replicate`: Triggers service duplication for a target node (`{"node_id": "vm-02"}`).
+* `POST /api/failback`: Triggers manual failback for a domain (`{"domain": "api.example.com"}`).
+
+
+

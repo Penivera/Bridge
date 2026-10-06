@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Operations — BRIDGE docs</title>
+  <meta name="description" content="Run BRIDGE in production: dashboard tour, CLI reference, health and JSON API endpoints, systemd management, graceful shutdown, and upgrades.">
+  <link rel="icon" type="image/png" href="../assets/favicon.png">
+  <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="wordmark" href="../index.html"><img src="../assets/favicon.png" alt="" aria-hidden="true">BRIDGE</a>
+      <button class="nav-toggle" aria-label="Toggle navigation" aria-expanded="false">
+        <span></span><span></span>
+      </button>
+      <nav class="site-nav" aria-label="Primary">
+        <ul>
+          <li class="nav-item has-dropdown">
+            <a href="getting-started.html" class="nav-docs-parent">Docs</a>
+            <ul class="dropdown">
+              <li><a href="getting-started.html">Getting started</a></li>
+              <li><a href="architecture.html">Architecture</a></li>
+              <li><a href="configuration.html">Configuration</a></li>
+              <li><a href="operations.html">Operations</a></li>
+            </ul>
+          </li>
+          <li class="nav-item"><a href="../install.html">Install</a></li>
+          <li class="nav-item"><a href="https://github.com/bridgemesh/bridge">GitHub</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <div class="container docs-main">
+      <div class="page-head">
+        <p class="breadcrumb"><a href="getting-started.html">Docs</a><span class="sep">/</span>Operations</p>
+        <h1>Operations</h1>
+        <p class="lead">Day-two BRIDGE: the dashboard, the CLI, the API, and the service manager.</p>
+      </div>
+
+      <h2 id="dashboard">Dashboard tour</h2>
+      <p>
+        The embedded operations dashboard is a dark, Cloudflare-inspired ops console served
+        by the daemon itself — no separate process. By default it listens on
+        <code>http://127.0.0.1:9090</code> (loopback only). Its views:
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>View</th><th>What it shows</th></tr></thead>
+          <tbody>
+            <tr><td>Overview</td><td>Fleet at a glance: node count, leader, routes, and current handoff tier.</td></tr>
+            <tr><td>Nodes</td><td>Every known member with its lifecycle state (Alive / Suspected / Dead / Recovered), endpoint, and priority.</td></tr>
+            <tr><td>Mesh</td><td>The WireGuard overlay: mesh IPs, links, and connectivity between nodes.</td></tr>
+            <tr><td>Routes</td><td>Static and Docker-discovered routes, their upstreams, and consistent-hash targets.</td></tr>
+            <tr><td>Events</td><td>Real-time event feed streamed over WebSocket — elections, handoffs, membership changes, failovers.</td></tr>
+            <tr><td>Config</td><td>The running configuration as loaded by the daemon.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2 id="cli">CLI reference</h2>
+      <p>
+        The <code>bridge</code> CLI talks to the running daemon over its Unix socket
+        (<code>/tmp/bridge.sock</code>, see <a href="configuration.html">[ipc]</a>).
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Command</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>bridge status</code></td><td>Daemon and fleet summary: uptime, role (leader/follower), membership counts.</td></tr>
+            <tr><td><code>bridge routes</code></td><td>List all routes, static and discovered.</td></tr>
+            <tr><td><code>bridge add-route</code></td><td>Add a route to the running daemon.</td></tr>
+            <tr><td><code>bridge remove-route</code></td><td>Remove a route from the running daemon.</td></tr>
+            <tr><td><code>bridge cluster</code></td><td>Show cluster membership and each node's lifecycle state.</td></tr>
+            <tr><td><code>bridge inspect &lt;domain&gt;</code></td><td>Inspect the route and upstream resolution for a hostname.</td></tr>
+            <tr><td><code>bridge replicas</code></td><td>Show failover-duplication replicas and their placement.</td></tr>
+            <tr><td><code>bridge ping</code></td><td>Check that the daemon answers over the IPC socket.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2 id="health">Health endpoint</h2>
+      <p>
+        <code>GET /health</code> on the dashboard listener reports daemon health — suitable
+        for load-balancer or monitoring checks:
+      </p>
+      <div class="codeblock">
+        <button class="copy-btn" type="button" data-copy-target="#health-cmd">Copy</button>
+<pre id="health-cmd"><code>curl -fsS http://127.0.0.1:9090/health</code></pre>
+      </div>
+
+      <h2 id="api">JSON API</h2>
+      <p>
+        The dashboard listener also serves a JSON API under <code>/api/v1</code>, plus a
+        WebSocket stream for real-time events:
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Endpoint</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>GET /api/v1/status</code></td><td>Daemon and fleet status.</td></tr>
+            <tr><td><code>GET /api/v1/nodes</code></td><td>Cluster members and lifecycle states.</td></tr>
+            <tr><td><code>GET /api/v1/routes</code></td><td>Configured and discovered routes.</td></tr>
+            <tr><td><code>GET /api/v1/mesh</code></td><td>WireGuard mesh topology.</td></tr>
+            <tr><td><code>GET /api/v1/events</code></td><td>Recent events.</td></tr>
+            <tr><td><code>GET /api/v1/handoff</code></td><td>Current handoff tier and state.</td></tr>
+            <tr><td><code>GET /api/v1/config</code></td><td>Running configuration.</td></tr>
+            <tr><td><code>WS /api/v1/stream</code></td><td>Real-time event stream (the same feed the dashboard renders).</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2 id="systemd">systemd management</h2>
+      <p>The installer registers <code>bridge.service</code>:</p>
+      <div class="codeblock">
+        <button class="copy-btn" type="button" data-copy-target="#systemd-cmds">Copy</button>
+<pre id="systemd-cmds"><code>systemctl status bridge     <span class="c"># service state</span>
+systemctl restart bridge    <span class="c"># pick up a config change</span>
+journalctl -u bridge -f     <span class="c"># follow daemon logs</span></code></pre>
+      </div>
+      <p>
+        The unit runs the daemon as the unprivileged <code>bridge</code> user with
+        <code>CAP_NET_BIND_SERVICE</code> and <code>CAP_NET_ADMIN</code> — enough to bind
+        ports 80/443 and configure WireGuard without full root.
+      </p>
+
+      <h2 id="shutdown">Graceful shutdown</h2>
+      <p>
+        On stop or restart, the daemon's shutdown coordinator drains subsystems in order —
+        ingress first, background workers last — and persists state to disk. A restarted node
+        resumes from the last known fleet state instead of rejoining cold.
+      </p>
+
+      <h2 id="upgrading">Upgrading</h2>
+      <p>
+        Re-run the installer. It downloads and verifies the new release, replaces the binary,
+        and restarts the service. Your existing <code>/etc/bridge/bridge.toml</code> is never
+        overwritten. Pin a specific version when you want a controlled rollout:
+      </p>
+      <div class="codeblock">
+        <button class="copy-btn" type="button" data-copy-target="#upgrade-cmd">Copy</button>
+<pre id="upgrade-cmd"><code>curl -fsSL https://bridgemesh.space/install.sh | sh
+<span class="c"># or pin a version:</span>
+curl -fsSL https://bridgemesh.space/install.sh | BRIDGE_VERSION=v1.2.3 sh</code></pre>
+      </div>
+      <p>
+        Upgrade followers first and the leader last: the fleet re-elects a follower as
+        leader, hands off the ingress, and the old leader rejoins after its upgrade.
+      </p>
+
+      <div class="docs-nav-footer">
+        <span>&larr; <a href="configuration.html">Configuration</a></span>
+        <span><a href="getting-started.html">Getting started</a> &rarr;</span>
+      </div>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-grid">
+      <div>
+        <a class="wordmark" href="../index.html"><img src="../assets/favicon.png" alt="" aria-hidden="true">BRIDGE</a>
+        <p class="muted">A single Rust daemon that turns a fleet of VPS nodes into one resilient system.</p>
+      </div>
+      <nav aria-label="Documentation">
+        <h4>Docs</h4>
+        <ul>
+          <li><a href="getting-started.html">Getting started</a></li>
+          <li><a href="architecture.html">Architecture</a></li>
+          <li><a href="configuration.html">Configuration</a></li>
+          <li><a href="operations.html">Operations</a></li>
+        </ul>
+      </nav>
+      <nav aria-label="Project">
+        <h4>Project</h4>
+        <ul>
+          <li><a href="../install.html">Install</a></li>
+          <li><a href="https://github.com/bridgemesh/bridge">GitHub</a></li>
+        </ul>
+      </nav>
+    </div>
+    <div class="container footer-base">bridgemesh.space</div>
+  </footer>
+
+  <script src="../assets/site.js"></script>
+</body>
+</html>

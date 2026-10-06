@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BRIDGE — One daemon. Every VPS. One resilient system.</title>
+  <meta name="description" content="BRIDGE is a single Rust daemon that turns a fleet of cheap VPS nodes across cloud providers into one resilient system: encrypted mesh, gossip membership, leader election, and automatic ingress handoff.">
+  <link rel="icon" type="image/png" href="assets/favicon.png">
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="wordmark" href="index.html"><img src="assets/favicon.png" alt="" aria-hidden="true">BRIDGE</a>
+      <button class="nav-toggle" aria-label="Toggle navigation" aria-expanded="false">
+        <span></span><span></span>
+      </button>
+      <nav class="site-nav" aria-label="Primary">
+        <ul>
+          <li class="nav-item has-dropdown">
+            <a href="docs/getting-started.html" class="nav-docs-parent">Docs</a>
+            <ul class="dropdown">
+              <li><a href="docs/getting-started.html">Getting started</a></li>
+              <li><a href="docs/architecture.html">Architecture</a></li>
+              <li><a href="docs/configuration.html">Configuration</a></li>
+              <li><a href="docs/operations.html">Operations</a></li>
+            </ul>
+          </li>
+          <li class="nav-item"><a href="install.html">Install</a></li>
+          <li class="nav-item"><a href="https://github.com/bridgemesh/bridge">GitHub</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="hero container">
+      <p class="hero-eyebrow">Distributed VPS fleet infrastructure</p>
+      <h1>Cheap VPS fleets, running as one resilient system.</h1>
+      <p class="hero-lead">
+        BRIDGE is infrastructure software: a single Rust binary daemon that runs on each
+        VPS node and turns a scattered fleet — across cloud providers — into one encrypted,
+        self-healing system with a single ingress point.
+      </p>
+      <div class="cmd-bar">
+        <span class="prompt" aria-hidden="true">$</span>
+        <code id="hero-install-cmd">curl -fsSL https://bridgemesh.space/install.sh | sh</code>
+        <button class="copy-btn" type="button" data-copy-target="#hero-install-cmd">Copy</button>
+      </div>
+      <div class="hero-actions">
+        <a class="btn btn-primary" href="docs/getting-started.html">Get started</a>
+        <a class="btn" href="install.html">Installation</a>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="container">
+        <p class="section-kicker">Why BRIDGE exists</p>
+        <h2 class="section-title">Multi-provider VPS fleets are cheap. They are also fragile.</h2>
+        <p class="section-lead">
+          A handful of small VPS nodes across providers costs a fraction of one large
+          instance — but out of the box you get a pile of single points of failure:
+          one node holds the ingress IP, every node is configured by hand, nothing
+          tracks peer health, and failover is you, awake, editing DNS at 3 a.m.
+        </p>
+        <p class="section-lead">
+          BRIDGE closes that gap. Nodes form an encrypted WireGuard mesh, track each
+          other's health over gossip, elect a leader to hold the ingress entrypoint,
+          and reroute around failure automatically. The fleet behaves like one system
+          because, to BRIDGE, it is one system.
+        </p>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="container">
+        <p class="section-kicker">Capabilities</p>
+        <h2 class="section-title">Everything the fleet needs, in one binary</h2>
+        <div class="grid">
+          <div class="card">
+            <span class="card-tag">Networking</span>
+            <h3>WireGuard L3 mesh</h3>
+            <p>Nodes form an encrypted overlay network (e.g. 10.8.0.x). Keys are auto-generated if not configured.</p>
+          </div>
+          <div class="card">
+            <span class="card-tag">Membership</span>
+            <h3>SWIM gossip</h3>
+            <p>Nodes discover and health-track each other — Alive &rarr; Suspected &rarr; Dead &rarr; Recovered — converging in seconds.</p>
+          </div>
+          <div class="card">
+            <span class="card-tag">Consensus</span>
+            <h3>Leader election</h3>
+            <p>Bully algorithm with configurable priorities. One leader holds the ingress entrypoint for the fleet.</p>
+          </div>
+          <div class="card">
+            <span class="card-tag">Ingress</span>
+            <h3>Three proxy modes</h3>
+            <p>L7 Direct HTTP reverse proxy per hostname, L4 SNI passthrough, or Managed delegation to an existing Coolify install.</p>
+          </div>
+          <div class="card">
+            <span class="card-tag">Failover</span>
+            <h3>Ingress handoff tiers</h3>
+            <p>None, health-checked DNS failover, Cloudflare Tunnel held by the leader, or a Floating IP — pick per deployment.</p>
+          </div>
+          <div class="card">
+            <span class="card-tag">Routing</span>
+            <h3>Route management</h3>
+            <p>Static routes from config plus Docker auto-discovery of labeled containers. Consistent-hash routing with session affinity.</p>
+          </div>
+          <div class="card">
+            <span class="card-tag">Resilience</span>
+            <h3>Failover duplication</h3>
+            <p>Workloads can be replicated to peer nodes on failure, with manual or automatic failback and cooldowns.</p>
+          </div>
+          <div class="card">
+            <span class="card-tag">Operations</span>
+            <h3>Dashboard &amp; CLI</h3>
+            <p>Embedded ops console on 127.0.0.1:9090, WebSocket real-time events, JSON API, and a CLI over a Unix socket.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="container">
+        <p class="section-kicker">Architecture</p>
+        <h2 class="section-title">A daemon on every node, a leader at the edge</h2>
+        <div class="diagram" role="img" aria-label="Diagram: clients reach the fleet through DNS or a Cloudflare Tunnel held by the leader node; all nodes are connected by an encrypted WireGuard mesh.">
+          <div class="d-row">
+            <div class="d-box">
+              <span class="d-title">Clients</span>
+              <span class="d-sub">public traffic</span>
+            </div>
+          </div>
+          <div class="d-vline" aria-hidden="true"></div>
+          <div class="d-vline-label">DNS failover / Cloudflare Tunnel</div>
+          <div class="d-fleet">
+            <span class="d-fleet-label">BRIDGE mesh &mdash; WireGuard overlay, 10.8.0.0/24</span>
+            <div class="d-row">
+              <div class="d-box leader">
+                <span class="d-title">node-01</span>
+                <span class="d-sub">10.8.0.1 &middot; priority 100</span>
+                <span class="d-badge">leader &middot; holds tunnel</span>
+              </div>
+              <div class="d-hlink" aria-hidden="true"></div>
+              <div class="d-box">
+                <span class="d-title">node-02</span>
+                <span class="d-sub">10.8.0.2</span>
+              </div>
+              <div class="d-hlink" aria-hidden="true"></div>
+              <div class="d-box">
+                <span class="d-title">node-03</span>
+                <span class="d-sub">10.8.0.3</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="diagram-caption">
+          Every node runs the same BRIDGE daemon. Gossip keeps membership current; the bully
+          algorithm keeps exactly one leader. If the leader dies, the fleet re-elects and the
+          tunnel or DNS entrypoint moves with it.
+        </p>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="container">
+        <p class="section-kicker">How it works</p>
+        <h2 class="section-title">Three steps to a fleet</h2>
+        <div class="steps">
+          <div class="step">
+            <h3>Install the daemon on each node</h3>
+            <p>One command per VPS installs the binary, a dedicated user, and a systemd unit.</p>
+          </div>
+          <div class="step">
+            <h3>Nodes form the mesh and elect a leader</h3>
+            <p>WireGuard links come up, gossip membership converges in seconds, and the highest-priority alive node takes the ingress.</p>
+          </div>
+          <div class="step">
+            <h3>Point DNS or the tunnel at the fleet</h3>
+            <p>The leader terminates ingress and routes to any node over the mesh. Failure triggers re-election and handoff — not downtime.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-grid">
+      <div>
+        <a class="wordmark" href="index.html"><img src="assets/favicon.png" alt="" aria-hidden="true">BRIDGE</a>
+        <p class="muted">A single Rust daemon that turns a fleet of VPS nodes into one resilient system.</p>
+      </div>
+      <nav aria-label="Documentation">
+        <h4>Docs</h4>
+        <ul>
+          <li><a href="docs/getting-started.html">Getting started</a></li>
+          <li><a href="docs/architecture.html">Architecture</a></li>
+          <li><a href="docs/configuration.html">Configuration</a></li>
+          <li><a href="docs/operations.html">Operations</a></li>
+        </ul>
+      </nav>
+      <nav aria-label="Project">
+        <h4>Project</h4>
+        <ul>
+          <li><a href="install.html">Install</a></li>
+          <li><a href="https://github.com/bridgemesh/bridge">GitHub</a></li>
+        </ul>
+      </nav>
+    </div>
+    <div class="container footer-base">bridgemesh.space</div>
+  </footer>
+
+  <script src="assets/site.js"></script>
+</body>
+</html>

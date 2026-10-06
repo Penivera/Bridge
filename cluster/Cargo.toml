@@ -1,0 +1,16 @@
+[package]
+name = "cluster"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+mesh = { path = "../mesh" }
+registry = { path = "../registry" }
+tokio.workspace = true
+tracing.workspace = true
+serde.workspace = true
+bincode.workspace = true
+foca.workspace = true
+rand.workspace = true
+bytes = "1"
+proxy = { path = "../proxy" }

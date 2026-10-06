@@ -1,0 +1,11 @@
+[package]
+name = "mesh"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+base64.workspace = true
+serde.workspace = true
+tracing.workspace = true
+x25519-dalek.workspace = true
+defguard_wireguard_rs.workspace = true

@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Configuration — BRIDGE docs</title>
+  <meta name="description" content="Full bridge.toml reference: discovery order, proxy, dashboard, discovery, IPC, node identity, services, handoff, sentry, and replication.">
+  <link rel="icon" type="image/png" href="../assets/favicon.png">
+  <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="wordmark" href="../index.html"><img src="../assets/favicon.png" alt="" aria-hidden="true">BRIDGE</a>
+      <button class="nav-toggle" aria-label="Toggle navigation" aria-expanded="false">
+        <span></span><span></span>
+      </button>
+      <nav class="site-nav" aria-label="Primary">
+        <ul>
+          <li class="nav-item has-dropdown">
+            <a href="getting-started.html" class="nav-docs-parent">Docs</a>
+            <ul class="dropdown">
+              <li><a href="getting-started.html">Getting started</a></li>
+              <li><a href="architecture.html">Architecture</a></li>
+              <li><a href="configuration.html">Configuration</a></li>
+              <li><a href="operations.html">Operations</a></li>
+            </ul>
+          </li>
+          <li class="nav-item"><a href="../install.html">Install</a></li>
+          <li class="nav-item"><a href="https://github.com/bridgemesh/bridge">GitHub</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <div class="container docs-main">
+      <div class="page-head">
+        <p class="breadcrumb"><a href="getting-started.html">Docs</a><span class="sep">/</span>Configuration</p>
+        <h1>Configuration</h1>
+        <p class="lead">A single <code>bridge.toml</code> (or YAML) file describes the node, the proxy, and the fleet.</p>
+      </div>
+
+      <h2 id="discovery">Config discovery</h2>
+      <p>The daemon looks for its configuration in this order:</p>
+      <ol>
+        <li><code>./bridge.toml</code> — the current working directory</li>
+        <li><code>$BRIDGE_CONFIG</code> — path from the environment variable</li>
+        <li><code>/etc/bridge/bridge.toml</code> — the system location the installer uses</li>
+      </ol>
+      <p>
+        You can always override discovery with <code>bridge --config /path/to/bridge.toml</code>.
+        Both TOML and YAML are accepted. Omitting the <code>[node]</code> section runs the
+        daemon in standalone mode (no mesh, no election).
+      </p>
+
+      <h2 id="reference">Full reference</h2>
+      <div class="codeblock">
+        <button class="copy-btn" type="button" data-copy-target="#full-config">Copy</button>
+<pre id="full-config"><code>enable_telemetry = false
+
+[proxy]
+mode = "Direct"            <span class="c"># Direct | SniPassthrough | Managed</span>
+listeners = ["http"]
+http_addr = "0.0.0.0:80"
+
+[dashboard]
+enabled = true
+listen_addr = "127.0.0.1:9090"
+
+[discovery]
+enabled = true
+docker_socket = "/var/run/docker.sock"
+default_node_id = "node-01"
+
+[ipc]
+enabled = true
+socket_path = "/tmp/bridge.sock"
+
+[logger]
+level = "INFO"
+format = "text"
+
+<span class="c"># This node's cluster identity (optional — omit for standalone)</span>
+[node]
+id = "node-01"
+mesh_ip = "10.8.0.1"
+endpoint = "203.0.113.10:51820"
+listen_port = 51820
+priority = 100
+
+[[seeds]]
+endpoint = "203.0.113.11:51820"
+
+[[nodes]]
+node_id = "node-01"
+endpoint = "203.0.113.10:51820"
+
+[[services]]
+url = "https://app.example.com"
+node_id = "node-01"
+upstream = "127.0.0.1:3000"
+
+[handoff]
+mode = "tunnel"            <span class="c"># none | dns | tunnel | floating_ip</span>
+
+[handoff.tunnel]
+<span class="c"># Cloudflare Tunnel credentials go here when mode = "tunnel"</span></code></pre>
+      </div>
+
+      <h2 id="sections">Sections</h2>
+
+      <h3>Top level</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Key</th><th>Type</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>enable_telemetry</code></td><td>boolean</td><td>Opt-in telemetry. Disabled by default.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>[proxy]</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Key</th><th>Type</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>mode</code></td><td>string</td><td><code>Direct</code> (L7 HTTP reverse proxy per hostname), <code>SniPassthrough</code> (L4, TLS terminates on backends), or <code>Managed</code> (delegate to an existing Coolify install).</td></tr>
+            <tr><td><code>listeners</code></td><td>array</td><td>Listener kinds to enable, e.g. <code>["http"]</code>.</td></tr>
+            <tr><td><code>http_addr</code></td><td>string</td><td>Bind address for HTTP ingress, e.g. <code>0.0.0.0:80</code>.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>[dashboard]</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Key</th><th>Type</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>enabled</code></td><td>boolean</td><td>Serve the embedded operations dashboard.</td></tr>
+            <tr><td><code>listen_addr</code></td><td>string</td><td>Default <code>127.0.0.1:9090</code> — loopback only unless changed.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>[discovery]</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Key</th><th>Type</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>enabled</code></td><td>boolean</td><td>Watch Docker for labeled containers and turn them into routes automatically.</td></tr>
+            <tr><td><code>docker_socket</code></td><td>string</td><td>Path to the Docker socket, e.g. <code>/var/run/docker.sock</code>.</td></tr>
+            <tr><td><code>default_node_id</code></td><td>string</td><td>Node id assigned to discovered routes on this host.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>[ipc]</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Key</th><th>Type</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>enabled</code></td><td>boolean</td><td>Serve the IPC socket the <code>bridge</code> CLI talks to.</td></tr>
+            <tr><td><code>socket_path</code></td><td>string</td><td>Default <code>/tmp/bridge.sock</code>.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>[logger]</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Key</th><th>Type</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>level</code></td><td>string</td><td>Log level, e.g. <code>INFO</code>.</td></tr>
+            <tr><td><code>format</code></td><td>string</td><td>Output format, e.g. <code>text</code>.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>[node]</h3>
+      <p>Cluster identity for this node. Omit the whole section for standalone mode.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Key</th><th>Type</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>id</code></td><td>string</td><td>Unique node identifier, e.g. <code>node-01</code>.</td></tr>
+            <tr><td><code>mesh_ip</code></td><td>string</td><td>This node's address on the WireGuard overlay, e.g. <code>10.8.0.1</code>.</td></tr>
+            <tr><td><code>endpoint</code></td><td>string</td><td>Public address peers dial, <code>host:port</code>.</td></tr>
+            <tr><td><code>listen_port</code></td><td>number</td><td>WireGuard listen port, e.g. <code>51820</code>. Keys are auto-generated if not configured.</td></tr>
+            <tr><td><code>priority</code></td><td>number</td><td>Bully election priority — higher wins leadership among alive nodes.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>[[seeds]]</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Key</th><th>Type</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>endpoint</code></td><td>string</td><td>A peer endpoint gossip contacts first to join the fleet. Repeat the table for multiple seeds.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>[[nodes]]</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Key</th><th>Type</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>node_id</code></td><td>string</td><td>Identifier of a known fleet member.</td></tr>
+            <tr><td><code>endpoint</code></td><td>string</td><td>Its public <code>host:port</code> endpoint.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>[[services]]</h3>
+      <p>Static routes. Repeat the table per service; discovered containers add routes alongside these.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Key</th><th>Type</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>url</code></td><td>string</td><td>Public URL of the service, e.g. <code>https://app.example.com</code>.</td></tr>
+            <tr><td><code>node_id</code></td><td>string</td><td>Node hosting the upstream.</td></tr>
+            <tr><td><code>upstream</code></td><td>string</td><td>Backend address, e.g. <code>127.0.0.1:3000</code>. Multiple targets across entries are spread by consistent-hash routing with session affinity.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>[services.replicate]</h3>
+      <p>
+        Optional per-service failover duplication: when the hosting node fails, the
+        workload is spawned on a peer via the container driver.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Key</th><th>Type</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>enabled</code></td><td>boolean</td><td>Turn on failover duplication for this service.</td></tr>
+            <tr><td><code>image</code></td><td>string</td><td>Container image spawned on the peer node.</td></tr>
+            <tr><td><code>env</code></td><td>table</td><td>Environment variables passed to the spawned container.</td></tr>
+            <tr><td><code>container_port</code></td><td>number</td><td>Port the container exposes.</td></tr>
+            <tr><td><code>placement</code></td><td>string</td><td>Placement rule selecting which peers may host the replica.</td></tr>
+            <tr><td><code>failback_mode</code></td><td>string</td><td><code>manual</code> or <code>automatic</code> return of the workload once the original node recovers.</td></tr>
+            <tr><td><code>failback_cooldown_secs</code></td><td>number</td><td>Minimum time before failback runs, preventing flapping.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>[handoff]</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Key</th><th>Type</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>mode</code></td><td>string</td><td>Ingress handoff tier: <code>none</code>, <code>dns</code>, <code>tunnel</code>, or <code>floating_ip</code>. See <a href="architecture.html#handoff">handoff tiers</a>.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>[handoff.tunnel]</h3>
+      <p>
+        Holds the Cloudflare Tunnel credentials used when <code>mode = "tunnel"</code>.
+        The elected leader brings the tunnel up; on re-election the new leader takes it over.
+      </p>
+
+      <h3>[handoff.dns]</h3>
+      <p>
+        Holds the DNS provider configuration used when <code>mode = "dns"</code>: the
+        provider credentials and record BRIDGE updates for health-checked DNS failover.
+      </p>
+
+      <h3>[sentry]</h3>
+      <p>Optional error reporting.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Key</th><th>Type</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>dsn</code></td><td>string</td><td>Sentry DSN.</td></tr>
+            <tr><td><code>environment</code></td><td>string</td><td>Environment tag attached to events, e.g. <code>production</code>.</td></tr>
+            <tr><td><code>sample_rate</code></td><td>number</td><td>Fraction of error events sent (0.0–1.0).</td></tr>
+            <tr><td><code>traces_sample_rate</code></td><td>number</td><td>Fraction of traces sent (0.0–1.0).</td></tr>
+            <tr><td><code>debug</code></td><td>boolean</td><td>Verbose Sentry SDK logging.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note">
+        <strong>Environment variable:</strong> <code>BRIDGE_CONFIG</code> points the daemon at
+        a config file anywhere on disk and takes precedence over the system path. The
+        installer never overwrites an existing <code>/etc/bridge/bridge.toml</code>.
+      </div>
+
+      <div class="docs-nav-footer">
+        <span>&larr; <a href="architecture.html">Architecture</a></span>
+        <span><a href="operations.html">Operations</a> &rarr;</span>
+      </div>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-grid">
+      <div>
+        <a class="wordmark" href="../index.html"><img src="../assets/favicon.png" alt="" aria-hidden="true">BRIDGE</a>
+        <p class="muted">A single Rust daemon that turns a fleet of VPS nodes into one resilient system.</p>
+      </div>
+      <nav aria-label="Documentation">
+        <h4>Docs</h4>
+        <ul>
+          <li><a href="getting-started.html">Getting started</a></li>
+          <li><a href="architecture.html">Architecture</a></li>
+          <li><a href="configuration.html">Configuration</a></li>
+          <li><a href="operations.html">Operations</a></li>
+        </ul>
+      </nav>
+      <nav aria-label="Project">
+        <h4>Project</h4>
+        <ul>
+          <li><a href="../install.html">Install</a></li>
+          <li><a href="https://github.com/bridgemesh/bridge">GitHub</a></li>
+        </ul>
+      </nav>
+    </div>
+    <div class="container footer-base">bridgemesh.space</div>
+  </footer>
+
+  <script src="../assets/site.js"></script>
+</body>
+</html>

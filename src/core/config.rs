@@ -29,8 +29,48 @@ pub struct Config {
     pub udp_services: Vec<UdpServiceConfig>,
     pub discovery: DiscoveryConfig,
     pub ipc: IpcConfig,
+    pub dashboard: DashboardConfig,
+    pub auth: AuthConfig,
+    pub node: Option<NodeConfig>,
+    #[serde(default)]
+    pub seeds: Vec<SeedConfig>,
+    #[serde(default)]
+    pub handoff: HandoffConfig,
     #[serde(skip)]
     pub loaded_from: Option<std::path::PathBuf>,
+}
+
+fn default_dashboard_listen_addr() -> std::net::SocketAddr {
+    "127.0.0.1:9090".parse().unwrap()
+}
+
+#[derive(Clone, Debug, SmartDefault, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct DashboardConfig {
+    #[default(true)]
+    pub enabled: bool,
+    #[default(default_dashboard_listen_addr())]
+    pub listen_addr: std::net::SocketAddr,
+    /// Optional public domain routed to the dashboard through BRIDGE ingress.
+    /// When set, only the elected cluster leader serves this route.
+    pub public_domain: Option<String>,
+}
+
+/// Authentication configuration for the embedded dashboard.
+#[derive(Clone, Debug, SmartDefault, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct AuthConfig {
+    #[default(false)]
+    pub enabled: bool,
+    pub users: Vec<AuthUser>,
+}
+
+/// A dashboard user with an Argon2 PHC password hash.
+#[derive(Clone, Debug, SmartDefault, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct AuthUser {
+    pub username: String,
+    pub password_hash: String,
 }
 
 #[derive(Clone, Debug, SmartDefault, Deserialize, Serialize, PartialEq, Eq)]
@@ -51,6 +91,114 @@ pub struct IpcConfig {
     pub enabled: bool,
     #[default("/tmp/bridge.sock".to_string())]
     pub socket_path: String,
+}
+
+/// Helper resolving an environment variable reference if prefixed with "env:",
+/// or returning the literal string otherwise.
+pub fn resolve_env_str(val: &str) -> String {
+    if let Some(var_name) = val.strip_prefix("env:") {
+        std::env::var(var_name).unwrap_or_else(|_| val.to_string())
+    } else {
+        val.to_string()
+    }
+}
+
+/// Ingress entrypoint handoff / failover configuration (Tier 1: none, Tier 2: dns, Tier 3a: tunnel, Tier 3b: floating_ip).
+#[derive(Clone, Debug, SmartDefault, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct HandoffConfig {
+    #[default(HandoffMode::None)]
+    pub mode: HandoffMode,
+    #[serde(default)]
+    pub tunnel: Option<TunnelHandoffConfig>,
+    #[serde(default)]
+    pub dns: Option<DnsHandoffConfig>,
+}
+
+/// Ingress failover mode.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum HandoffMode {
+    #[default]
+    None,
+    Tunnel,
+    Dns,
+    FloatingIp,
+}
+
+/// Cloudflare Tunnel handoff configuration (Tier 3a).
+#[derive(Clone, Debug, SmartDefault, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct TunnelHandoffConfig {
+    /// Cloudflare tunnel token (can use `env:CF_TUNNEL_TOKEN`).
+    pub token: Option<String>,
+    /// Cloudflare tunnel ID.
+    pub tunnel_id: Option<String>,
+    /// Path to tunnel credentials file (e.g. `/etc/cloudflared/cert.json`).
+    pub credentials_file: Option<std::path::PathBuf>,
+    /// Whether cloudflared stays running on all nodes (warm standby, faster failover)
+    /// or only spawns on the elected leader (cold standby, lower resource use).
+    #[default(false)]
+    pub warm_standby: bool,
+    /// Path to cloudflared executable (default: "cloudflared").
+    #[default("cloudflared".to_string())]
+    pub binary_path: String,
+    /// Optional extra CLI arguments passed to cloudflared.
+    #[default(vec![])]
+    pub extra_args: Vec<String>,
+}
+
+/// DNS failover configuration (Tier 2).
+#[derive(Clone, Debug, SmartDefault, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct DnsHandoffConfig {
+    #[default("cloudflare".to_string())]
+    pub provider: String,
+    pub zone_id: Option<String>,
+    pub record_name: Option<String>,
+    pub record_id: Option<String>,
+    pub api_token: Option<String>,
+    #[default(60)]
+    pub ttl: u32,
+    #[default(false)]
+    pub proxied: bool,
+    pub target_ip: Option<std::net::IpAddr>,
+    /// Optional API base URL override (default: "https://api.cloudflare.com/client/v4").
+    #[default("https://api.cloudflare.com/client/v4".to_string())]
+    pub api_base_url: String,
+}
+
+fn default_node_endpoint() -> std::net::SocketAddr {
+    "127.0.0.1:51820".parse().unwrap()
+}
+
+fn default_node_mesh_ip() -> std::net::IpAddr {
+    "10.8.0.1".parse().unwrap()
+}
+
+#[derive(Clone, Debug, SmartDefault, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct NodeConfig {
+    #[default("vm-01".to_string())]
+    pub id: String,
+    #[default(default_node_endpoint())]
+    pub endpoint: std::net::SocketAddr,
+    #[default(51820)]
+    pub listen_port: u16,
+    #[default(default_node_mesh_ip())]
+    pub mesh_ip: std::net::IpAddr,
+    pub private_key: Option<String>,
+    pub public_key: Option<String>,
+    #[default(0)]
+    pub priority: u32,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct SeedConfig {
+    pub id: String,
+    pub endpoint: std::net::SocketAddr,
+    pub public_key: String,
+    pub mesh_ip: std::net::IpAddr,
 }
 
 #[derive(Clone, Debug, SmartDefault, Deserialize, Serialize, PartialEq)]
@@ -74,12 +222,48 @@ pub struct SentryConfig {
     pub debug: bool,
 }
 
+/// Strategy for recovering / failing back duplicated services when the original node recovers.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum FailbackMode {
+    /// Keep the duplicate running on the failover node; do not kill in-flight sessions.
+    #[default]
+    NonPreemptive,
+    /// When the original node is healthy past the cooldown, restore route and stop duplicate.
+    Preemptive,
+    /// Keep running until operator issues manual failback command.
+    Manual,
+}
+
+/// Optional failover duplication configuration for a service.
+#[derive(Clone, Debug, SmartDefault, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct ServiceReplicationConfig {
+    #[default(false)]
+    pub enabled: bool,
+    pub image: Option<String>,
+    #[default(vec![])]
+    pub env: Vec<String>,
+    pub container_port: Option<u16>,
+    /// Placement strategy: "ring" (consistent hash successor), "leader", or explicit node_id
+    #[default("ring".to_string())]
+    pub placement: String,
+    /// Failure recovery / failback strategy when original node recovers.
+    #[default(FailbackMode::NonPreemptive)]
+    pub failback_mode: FailbackMode,
+    /// Cooldown seconds to wait before preemptive failback (default: 10s).
+    #[default(10)]
+    pub failback_cooldown_secs: u64,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct Service {
     pub url: url::Url,
     pub node_id: String,
     #[serde(default)]
     pub upstream: Option<std::net::SocketAddr>,
+    #[serde(default)]
+    pub replicate: Option<ServiceReplicationConfig>,
 }
 
 #[derive(SmartDefault, Deserialize, Clone)]

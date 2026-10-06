@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sign in // BRIDGE</title>
+    <link rel="icon" type="image/png" href="/favicon.png">
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: #050505;
+            color: #F5F5F5;
+            font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            padding: 20px;
+        }
+        .brand {
+            font-weight: 700;
+            font-size: 15px;
+            letter-spacing: 0.14em;
+            color: #737373;
+            margin-bottom: 8px;
+        }
+        .brand::after {
+            content: "";
+            display: inline-block;
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: #F38020;
+            margin-left: 6px;
+            vertical-align: 2px;
+        }
+        .brand-sub {
+            font-size: 12px;
+            color: #737373;
+            margin-bottom: 40px;
+        }
+        .panel {
+            width: 340px;
+            background: #0A0A0A;
+            border: 1px solid #222222;
+            border-radius: 6px;
+            padding: 24px;
+        }
+        .panel-title {
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+        .panel-hint {
+            font-size: 12px;
+            color: #737373;
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            font-size: 12px;
+            color: #A3A3A3;
+            font-weight: 500;
+            margin-bottom: 4px;
+        }
+        input {
+            width: 100%;
+            background: #101010;
+            border: 1px solid #222222;
+            border-radius: 4px;
+            color: #F5F5F5;
+            font-family: inherit;
+            font-size: 13px;
+            padding: 8px 10px;
+            margin-bottom: 14px;
+        }
+        input:focus {
+            outline: none;
+            border-color: #F38020;
+            box-shadow: 0 0 0 2px rgba(243, 128, 32, 0.12);
+        }
+        button {
+            width: 100%;
+            padding: 8px 0;
+            border-radius: 4px;
+            border: 1px solid #F38020;
+            background: #F38020;
+            color: #050505;
+            font-family: inherit;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        button:hover { background: #F7931E; border-color: #F7931E; }
+        button:disabled { opacity: 0.45; cursor: not-allowed; }
+        .error {
+            display: none;
+            font-size: 12px;
+            color: #EF4444;
+            margin-top: 12px;
+            text-align: center;
+        }
+        .error.visible { display: block; }
+    </style>
+</head>
+<body>
+    <div class="brand">BRIDGE</div>
+    <div class="brand-sub">Distributed ingress infrastructure</div>
+    <div class="panel">
+        <div class="panel-title">Sign in</div>
+        <div class="panel-hint">Authenticate against the local daemon.</div>
+        <form id="login-form">
+            <label for="username">Username</label>
+            <input id="username" name="username" type="text" autocomplete="username" required autofocus>
+            <label for="password">Password</label>
+            <input id="password" name="password" type="password" autocomplete="current-password" required>
+            <button id="submit" type="submit">Sign in</button>
+            <div class="error" id="error">Invalid username or password.</div>
+        </form>
+    </div>
+    <script>
+        (function () {
+            'use strict';
+            var form = document.getElementById('login-form');
+            var error = document.getElementById('error');
+            var submit = document.getElementById('submit');
+            form.addEventListener('submit', async function (e) {
+                e.preventDefault();
+                error.classList.remove('visible');
+                submit.disabled = true;
+                try {
+                    var res = await fetch('/api/v1/login', {
+                        method: 'POST',
+                        headers: { 'content-type': 'application/json' },
+                        body: JSON.stringify({
+                            username: document.getElementById('username').value,
+                            password: document.getElementById('password').value,
+                        }),
+                    });
+                    if (res.status === 200) {
+                        window.location.href = '/';
+                    } else {
+                        error.classList.add('visible');
+                        submit.disabled = false;
+                    }
+                } catch (err) {
+                    error.classList.add('visible');
+                    submit.disabled = false;
+                }
+            });
+        })();
+    </script>
+</body>
+</html>
