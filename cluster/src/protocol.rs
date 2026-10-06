@@ -16,10 +16,14 @@ pub struct PeerNode {
     pub public_key: String,
     /// Overlay mesh IP inside the WireGuard subnet (e.g., 10.8.0.3).
     pub mesh_ip: IpAddr,
-    /// Publicly reachable WireGuard & UDP cluster endpoint (e.g., 65.21.100.3:51820).
+    /// Publicly reachable UDP cluster endpoint (e.g., 65.21.100.3:51821).
     pub endpoint: SocketAddr,
     /// Configurable election priority (higher priority wins Bully election, default 0).
     pub priority: u32,
+    /// UDP listen port of the node's kernel WireGuard interface (e.g., 51820).
+    /// Kept separate from the cluster endpoint so the kernel WireGuard socket
+    /// and the userspace gossip socket never contend for the same port.
+    pub listen_port: u16,
 }
 
 impl PeerNode {
@@ -33,6 +37,7 @@ impl PeerNode {
             node_id: node_id.into(),
             public_key: public_key.into(),
             mesh_ip,
+            listen_port: endpoint.port(),
             endpoint,
             priority: 0,
         }
@@ -41,6 +46,17 @@ impl PeerNode {
     pub fn with_priority(mut self, priority: u32) -> Self {
         self.priority = priority;
         self
+    }
+
+    /// Sets the kernel WireGuard listen port (defaults to the cluster endpoint port).
+    pub fn with_listen_port(mut self, port: u16) -> Self {
+        self.listen_port = port;
+        self
+    }
+
+    /// The peer's kernel WireGuard UDP endpoint.
+    pub fn wireguard_endpoint(&self) -> SocketAddr {
+        SocketAddr::new(self.endpoint.ip(), self.listen_port)
     }
 
     /// Evaluates the node's election ranking tuple `(priority, node_id)`.

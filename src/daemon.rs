@@ -147,7 +147,8 @@ pub async fn run(config_path: Option<&Path>) -> Result<(), Box<dyn std::error::E
             node_cfg.mesh_ip,
             node_cfg.endpoint,
         )
-        .with_priority(node_cfg.priority);
+        .with_priority(node_cfg.priority)
+        .with_listen_port(node_cfg.listen_port);
 
         let wireguard = Arc::new(tokio::sync::RwLock::new(crate::mesh::WireGuardDevice::new(
             "wg0",

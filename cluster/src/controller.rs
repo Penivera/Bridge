@@ -365,7 +365,7 @@ impl ClusterController {
             let mut wg = self.wireguard.write().await;
             let wg_peer = WireGuardPeer::new(
                 peer.public_key.clone(),
-                Some(peer.endpoint),
+                Some(peer.wireguard_endpoint()),
                 vec![format!("{}/32", peer.mesh_ip)],
             );
             wg.add_peer(wg_peer);
