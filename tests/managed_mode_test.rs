@@ -367,3 +367,47 @@ fn test_detect_traefik_dynamic_path_coolify_discovery() {
     let _ = std::fs::remove_dir_all(&temp_dir);
 }
 
+
+#[test]
+fn test_remote_route_resolves_node_target_not_upstream_override() {
+    let registry = Arc::new(DomainRegistry::new());
+    let node = Node::new("vm-02", "127.0.0.1:8080".parse().unwrap())
+        .with_mesh_address("10.8.0.2:8080".parse().unwrap())
+        .with_routing(RoutingPreference::Mesh);
+    let route = Route::new(Some("127.0.0.1:8080".parse().unwrap()), node);
+    registry.insert("api.example.com".to_string(), route);
+
+    let config = ManagedConfig {
+        local_node_id: "vm-01".to_string(),
+        ..Default::default()
+    };
+    let generated = proxy::managed::generate_traefik_config(&registry, RoutingPreference::Mesh, &config);
+    let url = &generated
+        .http
+        .services
+        .get("bridge-api-example-com")
+        .expect("router generated")
+        .load_balancer
+        .servers[0]
+        .url;
+    // The 127.0.0.1 upstream is only valid on the origin node; the managed
+    // provider must target the remote node's mesh endpoint instead.
+    assert_eq!(url, "http://10.8.0.2:8080");
+}
+
+#[test]
+fn test_internal_node_records_excluded_from_traefik_config() {
+    let registry = Arc::new(DomainRegistry::new());
+    let node = Node::new("vm-02", "10.8.0.2:443".parse().unwrap())
+        .with_mesh_address("10.8.0.2:443".parse().unwrap());
+    let route = Route::new(Some("10.8.0.2:443".parse().unwrap()), node);
+    registry.insert("vm-02.node.internal".to_string(), route);
+
+    let config = ManagedConfig {
+        local_node_id: "vm-01".to_string(),
+        ..Default::default()
+    };
+    let generated = proxy::managed::generate_traefik_config(&registry, RoutingPreference::Mesh, &config);
+    assert!(generated.http.routers.is_empty());
+    assert!(generated.http.services.is_empty());
+}

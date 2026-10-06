@@ -1,5 +1,4 @@
 use std::collections::BTreeMap;
-use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -141,22 +140,38 @@ pub fn generate_traefik_config(
             name = format!("{base_name}-{counter}");
         }
 
-        let server_url = if is_dashboard_domain {
-            match config.dashboard_upstream.as_deref() {
+        let servers: Vec<TraefikServer> = if is_dashboard_domain {
+            let url = match config.dashboard_upstream.as_deref() {
                 Some(url) => url.to_string(),
                 None => {
                     let port = route.upstream.map(|u| u.port()).unwrap_or(9090);
                     format!("http://127.0.0.1:{port}")
                 }
-            }
-        } else {
-            let target_addr = route.target_addr_with_fallback(routing_pref);
-            let scheme = if target_addr.port() == 443 {
-                "https"
-            } else {
-                &config.default_target_scheme
             };
-            format!("{scheme}://{target_addr}")
+            vec![TraefikServer { url }]
+        } else {
+            // Resolve the target node's address directly: the route's `upstream`
+            // is only valid on the origin node, so cross-node routers must use
+            // the node's mesh/direct endpoint instead.
+            let targets: Vec<&registry::Node> = if route.targets.is_empty() {
+                vec![&route.node]
+            } else {
+                route.targets.iter().collect()
+            };
+            targets
+                .iter()
+                .map(|node| {
+                    let addr = node.target_address_with_fallback(routing_pref);
+                    let scheme = if addr.port() == 443 {
+                        "https"
+                    } else {
+                        &config.default_target_scheme
+                    };
+                    TraefikServer {
+                        url: format!("{scheme}://{addr}"),
+                    }
+                })
+                .collect()
         };
 
         let tls = if config.tls_enabled {
@@ -175,9 +190,7 @@ pub fn generate_traefik_config(
         };
 
         let service = TraefikService {
-            load_balancer: TraefikLoadBalancer {
-                servers: vec![TraefikServer { url: server_url }],
-            },
+            load_balancer: TraefikLoadBalancer { servers },
         };
 
         routers.insert(name.clone(), router);
