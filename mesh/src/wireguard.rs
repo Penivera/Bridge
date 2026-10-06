@@ -147,7 +147,7 @@ impl WireGuardDevice {
             use defguard_wireguard_rs::net::IpAddrMask;
             use defguard_wireguard_rs::peer::Peer;
             use defguard_wireguard_rs::{InterfaceConfiguration, WGApi, WireguardInterfaceApi};
-            let wgapi: WGApi = match WGApi::new(self.interface_name.clone()) {
+            let mut wgapi: WGApi = match WGApi::new(self.interface_name.clone()) {
                 Ok(api) => api,
                 Err(err) => {
                     tracing::warn!(interface = %self.interface_name, %err, "kernel WireGuard interface unavailable (unprivileged environment)");
@@ -194,7 +194,13 @@ impl WireGuardDevice {
             };
 
             if let Err(err) = wgapi.configure_interface(&config) {
-                tracing::warn!(interface = %self.interface_name, %err, "could not configure kernel WireGuard interface (requires CAP_NET_ADMIN)");
+                // The interface may not exist yet (first boot): create it, then retry.
+                if let Err(create_err) = wgapi.create_interface() {
+                    tracing::warn!(interface = %self.interface_name, %create_err, "could not create kernel WireGuard interface");
+                }
+                if let Err(retry_err) = wgapi.configure_interface(&config) {
+                    tracing::warn!(interface = %self.interface_name, %err, %retry_err, "could not configure kernel WireGuard interface (requires CAP_NET_ADMIN)");
+                }
             }
         }
         Ok(())
