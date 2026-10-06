@@ -116,3 +116,12 @@ async fn test_run_propagates_bind_error() {
         .unwrap_err();
     assert_eq!(error.kind(), std::io::ErrorKind::AddrInUse);
 }
+
+#[test]
+fn test_normalize_host_strips_port_and_lowercases() {
+    assert_eq!(proxy::server::handler::normalize_host("dashboard.bridgemesh.space:18080"), "dashboard.bridgemesh.space");
+    assert_eq!(proxy::server::handler::normalize_host("App.Example.com:8080"), "app.example.com");
+    assert_eq!(proxy::server::handler::normalize_host("example.com"), "example.com");
+    assert_eq!(proxy::server::handler::normalize_host("example.com."), "example.com");
+    assert_eq!(proxy::server::handler::normalize_host("[::1]:18080"), "::1");
+}

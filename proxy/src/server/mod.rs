@@ -8,7 +8,7 @@ use hyper_util::{rt::TokioExecutor,client::legacy::{Client,connect::HttpConnecto
 use crate::core::config::ProxyConfig;
 use crate::core::enums::ProxyMode;
 
-mod handler;
+pub mod handler;
 
 /// Core ingress proxy engine for Bridge.
 #[derive(Clone)]

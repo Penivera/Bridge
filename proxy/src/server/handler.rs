@@ -13,6 +13,23 @@ use std::{
 };
 use futures::FutureExt;
 
+/// Strips a trailing `:<port>` from a Host header value (clients include the
+/// port for non-default ports) and lowercases it for registry lookup.
+/// Handles bracketed IPv6 literals too.
+pub fn normalize_host(host: &str) -> String {
+    let bare = if host.starts_with('[') {
+        match host.find(']') {
+            Some(end) => &host[1..end],
+            None => host,
+        }
+    } else if let Some(colon) = host.find(':') {
+        &host[..colon]
+    } else {
+        host
+    };
+    bare.trim_end_matches('.').to_ascii_lowercase()
+}
+
 
 
 impl Service<Request<IncomingBody>> for Proxy {
@@ -22,7 +39,7 @@ impl Service<Request<IncomingBody>> for Proxy {
 
     fn call(&self, req: Request<IncomingBody>) -> Self::Future {
         let host = match req.headers().get(HOST).and_then( |header| header.to_str().ok()) {
-            Some(host) => host.to_owned(),
+            Some(host) => normalize_host(host),
             None => {
                 return async {
                     Ok(Response::new(Full::new(Bytes::from(
@@ -68,9 +85,7 @@ impl Proxy {
    async fn map_url_to_route(&self, host: &str) -> Option<Route> {
         let route = self.registry.lookup(host);
         route
-    }
-
-    async fn tunnel(&self, upgraded:Upgraded, addr: String) -> std::io::Result<()>{
+    }    async fn tunnel(&self, upgraded:Upgraded, addr: String) -> std::io::Result<()>{
         // Connect to the upstream server
         let mut upstream = TcpStream::connect(addr).await?;
         let mut upgraded = TokioIo::new(upgraded);
