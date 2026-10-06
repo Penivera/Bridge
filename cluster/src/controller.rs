@@ -985,7 +985,15 @@ impl ClusterController {
 
                     let role = { self.election_state.read().await.role };
                     if role == ElectionRole::Leader {
-                        let current_term = { self.election_state.read().await.term };
+                        // Adopt the higher incoming term so our Coordinator
+                        // declaration is never rejected as stale by the peer.
+                        let current_term = {
+                            let mut state = self.election_state.write().await;
+                            if term > state.term {
+                                state.term = term;
+                            }
+                            state.term
+                        };
                         let coord = ClusterMessage::Coordinator {
                             leader: self.local_node.clone(),
                             term: current_term,
