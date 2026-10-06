@@ -80,7 +80,18 @@ impl ClusterController {
         wireguard: Arc<RwLock<WireGuardDevice>>,
         registry: Arc<DomainRegistry>,
     ) -> std::io::Result<Self> {
-        let socket = Arc::new(UdpSocket::bind(local_node.endpoint).await?);
+        // Bind the wildcard address so NAT'd nodes (which advertise a public
+        // endpoint they do not own locally) can still join. The advertised
+        // endpoint stays `local_node.endpoint`.
+        let bind_addr = SocketAddr::new(
+            if local_node.endpoint.is_ipv4() {
+                std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED)
+            } else {
+                std::net::IpAddr::V6(std::net::Ipv6Addr::UNSPECIFIED)
+            },
+            local_node.endpoint.port(),
+        );
+        let socket = Arc::new(UdpSocket::bind(bind_addr).await?);
         let foca = Arc::new(Mutex::new(Self::init_foca(&local_node, None)));
         let (timer_tx, timer_rx) = mpsc::channel(256);
         let (leader_tx, leader_rx) = watch::channel(None);
