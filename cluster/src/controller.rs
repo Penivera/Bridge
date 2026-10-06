@@ -1098,6 +1098,7 @@ impl ClusterController {
         let mut timer_rx = self.timer_rx.lock().await;
         let mut gossip_ticker = tokio::time::interval(self.gossip_period);
         let mut rejoin_ticker = tokio::time::interval(Duration::from_secs(3));
+        let mut leader_check_ticker = tokio::time::interval(Duration::from_secs(5));
 
         {
             let this = self.clone();
@@ -1131,6 +1132,20 @@ impl ClusterController {
                         // No peers yet (e.g. simultaneous fleet boot): retry seeds
                         // so nodes that missed each other's first JoinRequest converge.
                         let _ = self.send_join_requests().await;
+                    }
+                }
+                _ = leader_check_ticker.tick() => {
+                    // Self-healing: if we know peers but have no acknowledged leader
+                    // (e.g. an election failed quorum during a transient flap), rerun
+                    // the bully election until the cluster converges.
+                    let peers_empty = self.peers.read().await.is_empty();
+                    let has_leader = self.current_leader().await.is_some();
+                    if !peers_empty && !has_leader {
+                        tracing::info!("peers known but no acknowledged leader; rerunning bully election");
+                        let this = self.clone();
+                        tokio::spawn(async move {
+                            let _ = this.start_election().await;
+                        });
                     }
                 }
                 Some(timer_event) = timer_rx.recv() => {
