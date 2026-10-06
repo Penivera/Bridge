@@ -69,7 +69,7 @@
       const table = BridgeUI.table({
         columns: [
           { label: 'Hostname', primary: true, render: r => `<span class="mono">${BridgeUI.esc(r.domain != null ? r.domain : '–')}</span>` },
-          { label: 'Destination', mono: true, render: r => BridgeUI.esc(r.node_id != null ? r.node_id : '–') },
+          { label: 'Destination', mono: true, render: r => `<span class="mono">${BridgeUI.esc(r.node_id != null ? r.node_id : '–')}</span>${r.node_health === 'dead' ? ' ' + BridgeUI.badge('node dead', 'danger') : ''}` },
           { label: 'Backend', mono: true, render: r => BridgeUI.esc(r.target_addr != null ? r.target_addr : '–') },
           { label: 'Targets', num: true, render: r => `${BridgeUI.fmt.num(r.targets_count)}${r.has_hash_ring ? ' ' + BridgeUI.badge('hash ring', 'accent') : ''}` },
           { label: 'Requests', render: r => { const m = routeMetric(state, r.domain); return BridgeUI.fmt.num(m && m.requests); } },
@@ -111,7 +111,7 @@
         <div class="detail-section-title">Targets</div>
         ${BridgeUI.table({
           columns: [
-            { label: 'Node', mono: true, render: t => BridgeUI.esc(t.node_id != null ? t.node_id : '–') },
+            { label: 'Node', mono: true, render: t => `<span class="mono">${BridgeUI.esc(t.node_id != null ? t.node_id : '–')}</span>${t.health === 'dead' ? ' ' + BridgeUI.badge('dead', 'danger') : ''}` },
             { label: 'Address', mono: true, render: t => BridgeUI.esc(t.address != null ? t.address : '–') },
           ],
           rows: targets,

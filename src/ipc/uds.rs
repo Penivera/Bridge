@@ -146,6 +146,8 @@ pub struct RouteInfo {
     pub upstream: Option<SocketAddr>,
     pub node_id: String,
     pub target_addr: SocketAddr,
+    /// Liveness of the owning node: "healthy" or "dead".
+    pub health: String,
 }
 
 impl From<&Route> for RouteInfo {
@@ -154,6 +156,7 @@ impl From<&Route> for RouteInfo {
             upstream: r.upstream,
             node_id: r.node.node_id.clone(),
             target_addr: r.target_addr(),
+            health: "unknown".to_string(),
         }
     }
 }
@@ -437,10 +440,17 @@ async fn handle_ipc_connection(
                 }
                 IpcRequest::ListRoutes => {
                     let snapshot = registry.snapshot();
-                    let routes = snapshot
-                        .iter()
-                        .map(|(k, v)| (k.clone(), RouteInfo::from(v)))
-                        .collect();
+                    let mut routes = HashMap::new();
+                    let cluster_guard = cluster_slot.read().await;
+                    for (k, v) in snapshot.iter() {
+                        let mut info = RouteInfo::from(v);
+                        if let Some(ctrl) = cluster_guard.as_ref() {
+                            let alive = ctrl.local_node.node_id == v.node.node_id
+                                || ctrl.peers.read().await.contains_key(&v.node.node_id);
+                            info.health = if alive { "healthy".to_string() } else { "dead".to_string() };
+                        }
+                        routes.insert(k.clone(), info);
+                    }
                     IpcResponse::Ok {
                         data: IpcData::Routes { routes },
                     }

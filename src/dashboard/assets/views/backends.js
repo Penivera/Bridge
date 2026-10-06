@@ -34,6 +34,8 @@
             address: t.address,
             domain: r.domain,
             node_id: t.node_id,
+            // API-provided liveness wins; fall back to the nodes view map.
+            health: t.health || healthByNode.get(t.node_id) || 'unknown',
             ring: Boolean(r.has_hash_ring),
           });
         });
@@ -44,12 +46,7 @@
           { label: 'Backend', primary: true, render: b => `<span class="mono">${BridgeUI.esc(b.address != null ? b.address : '–')}</span>` },
           { label: 'Route', mono: true, render: b => BridgeUI.esc(b.domain != null ? b.domain : '–') },
           { label: 'Node', mono: true, render: b => BridgeUI.esc(b.node_id != null ? b.node_id : '–') },
-          { label: 'Node Health', render: b => {
-              const h = healthByNode.get(b.node_id);
-              return h
-                ? `${BridgeUI.statusDot(h)} ${BridgeUI.healthBadge(h)}`
-                : `${BridgeUI.statusDot('unknown')} –`;
-            } },
+          { label: 'Node Health', render: b => `${BridgeUI.statusDot(b.health)} ${BridgeUI.healthBadge(b.health)}` },
           { label: 'Hash Ring', render: b => (b.ring ? BridgeUI.badge('ring', 'accent') : '–') },
         ],
         rows,

@@ -129,18 +129,45 @@ pub async fn handle_node_detail(
     Err(DashboardError::NotFound(format!("Node {node_id} not found")))
 }
 
+/// Resolves the liveness of a route target node from current cluster state.
+async fn target_health(
+    cluster: &std::sync::Arc<tokio::sync::RwLock<Option<std::sync::Arc<cluster::ClusterController>>>>,
+    node_id: &str,
+) -> &'static str {
+    let guard = cluster.read().await;
+    let Some(ctrl) = guard.as_ref() else {
+        return "unknown";
+    };
+    if ctrl.local_node.node_id == node_id {
+        return "healthy";
+    }
+    let peers = ctrl.peers.read().await;
+    if peers.contains_key(node_id) {
+        "healthy"
+    } else {
+        "dead"
+    }
+}
+
 pub async fn handle_routes(State(server): State<Arc<DashboardServer>>) -> HandlerResult {
     let snapshot = server.registry.snapshot();
     let mut routes = Vec::new();
     for (domain, route) in snapshot.iter() {
-        let targets: Vec<_> = route.targets.iter().map(|t| json!({
-            "node_id": t.node_id,
-            "address": t.address,
-        })).collect();
+        let mut targets = Vec::new();
+        for t in route.targets.iter() {
+            let health = target_health(&server.cluster, &t.node_id).await;
+            targets.push(json!({
+                "node_id": t.node_id,
+                "address": t.address,
+                "health": health,
+            }));
+        }
+        let node_health = target_health(&server.cluster, &route.node.node_id).await;
         routes.push(json!({
             "domain": domain,
             "upstream": route.upstream,
             "node_id": route.node.node_id,
+            "node_health": node_health,
             "target_addr": route.target_addr(),
             "targets_count": route.targets.len(),
             "has_hash_ring": route.ring.is_some(),
@@ -155,14 +182,21 @@ pub async fn handle_route_detail(
     Path(hostname): Path<String>,
 ) -> HandlerResult {
     if let Some(route) = server.registry.lookup(&hostname) {
-        let targets: Vec<_> = route.targets.iter().map(|t| json!({
-            "node_id": t.node_id,
-            "address": t.address,
-        })).collect();
+        let mut targets = Vec::new();
+        for t in route.targets.iter() {
+            let health = target_health(&server.cluster, &t.node_id).await;
+            targets.push(json!({
+                "node_id": t.node_id,
+                "address": t.address,
+                "health": health,
+            }));
+        }
+        let node_health = target_health(&server.cluster, &route.node.node_id).await;
         return Ok(Json(json!({
             "domain": hostname,
             "upstream": route.upstream,
             "node_id": route.node.node_id,
+            "node_health": node_health,
             "target_addr": route.target_addr(),
             "targets_count": route.targets.len(),
             "has_hash_ring": route.ring.is_some(),

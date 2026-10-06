@@ -155,14 +155,15 @@ pub async fn execute_command(
             if routes.is_empty() {
                 println!("No routes registered.");
             } else {
-                println!("{:<32} {:<24} {:<15}", "DOMAIN", "UPSTREAM", "NODE_ID");
-                println!("{:-<72}", "");
+                println!("{:<32} {:<24} {:<15} {:<8}", "DOMAIN", "UPSTREAM", "NODE_ID", "STATE");
+                println!("{:-<82}", "");
                 for (domain, info) in routes {
                     let up = info
                         .upstream
                         .map(|a| a.to_string())
                         .unwrap_or_else(|| "-".to_string());
-                    println!("{:<32} {:<24} {:<15}", domain, up, info.node_id);
+                    let state = if info.health == "healthy" { "ACTIVE" } else { "DEAD" };
+                    println!("{:<32} {:<24} {:<15} {:<8}", domain, up, info.node_id, state);
                 }
             }
             Ok(CommandOutcome::Exit)
