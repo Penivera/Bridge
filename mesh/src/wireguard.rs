@@ -202,6 +202,11 @@ impl WireGuardDevice {
                     tracing::warn!(interface = %self.interface_name, %err, %retry_err, "could not configure kernel WireGuard interface (requires CAP_NET_ADMIN)");
                 }
             }
+
+            // Install kernel routes for each peer's allowed IPs through wg0.
+            if let Err(route_err) = wgapi.configure_peer_routing(&config.peers) {
+                tracing::warn!(interface = %self.interface_name, %route_err, "could not configure kernel WireGuard peer routing");
+            }
         }
         Ok(())
     }
