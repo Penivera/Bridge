@@ -34,12 +34,21 @@ pub async fn run(config_path: Option<&Path>) -> Result<(), Box<dyn std::error::E
     if config.discovery.enabled {
         let (discovery_rx, discovery_ack) = coordinator.register_subsystem("docker_discovery");
         let disc_reg = registry.clone();
-        let default_node_id = config.discovery.default_node_id.clone();
+        let default_node_id = config
+            .node
+            .as_ref()
+            .map(|n| n.id.clone())
+            .unwrap_or_else(|| config.discovery.default_node_id.clone());
+        let discovery_mesh_ip = config.node.as_ref().map(|n| n.mesh_ip);
         let socket_path = config.discovery.docker_socket.clone();
 
         tokio::spawn(async move {
             match crate::discovery::DockerDiscovery::connect_socket(&socket_path, disc_reg, default_node_id) {
                 Ok(discovery) => {
+                    let discovery = match discovery_mesh_ip {
+                        Some(mesh_ip) => discovery.with_mesh_ip(mesh_ip),
+                        None => discovery,
+                    };
                     if let Err(err) = discovery.run_with_shutdown(discovery_rx, Some(discovery_ack)).await {
                         tracing::warn!(%err, "docker discovery service stopped with error");
                     }

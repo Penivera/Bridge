@@ -51,7 +51,7 @@ fn test_parse_docker_labels_traefik_router_and_service() {
         "3000".to_string(),
     );
 
-    let routes = parse_docker_labels(&labels, "self");
+    let routes = parse_docker_labels(&labels, "self", None);
     assert_eq!(routes.len(), 1);
 
     let (domain, route) = &routes[0];
@@ -72,7 +72,7 @@ fn test_parse_docker_labels_coolify_direct_domain() {
     );
     labels.insert("coolify.port".to_string(), "8080".to_string());
 
-    let routes = parse_docker_labels(&labels, "vm-01");
+    let routes = parse_docker_labels(&labels, "vm-01", None);
     assert_eq!(routes.len(), 1);
 
     let (domain, route) = &routes[0];
@@ -93,7 +93,7 @@ fn test_parse_docker_labels_caddy_and_bridge_labels() {
     );
     labels.insert("bridge.port".to_string(), "5000".to_string());
 
-    let routes = parse_docker_labels(&labels, "self");
+    let routes = parse_docker_labels(&labels, "self", None);
     assert_eq!(routes.len(), 2);
     let domains: Vec<String> = routes.iter().map(|(d, _)| d.clone()).collect();
     assert!(domains.contains(&"api.example.com".to_string()));
@@ -105,7 +105,7 @@ fn test_parse_docker_labels_empty_when_no_domain() {
     let mut labels = HashMap::new();
     labels.insert("com.docker.compose.project".to_string(), "myapp".to_string());
 
-    let routes = parse_docker_labels(&labels, "self");
+    let routes = parse_docker_labels(&labels, "self", None);
     assert!(routes.is_empty());
 }
 

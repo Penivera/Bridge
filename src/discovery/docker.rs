@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use futures_util::StreamExt;
 use registry::{DomainRegistry, Node, Route};
@@ -55,9 +55,14 @@ pub fn parse_traefik_rule(rule: &str) -> Vec<String> {
 /// - Port: `traefik.http.services.<name>.loadbalancer.server.port`
 /// - Coolify: `coolify.domain = "app.example.com"`
 /// - Generic: `bridge.domain = "app.example.com"`, `bridge.port = "3000"`
+///
+/// When `mesh_ip` is provided, discovered routes also carry the local node's
+/// mesh address (mesh_ip:port) so peers can route to the service through the
+/// WireGuard overlay instead of only via the discovering node's loopback.
 pub fn parse_docker_labels(
     labels: &HashMap<String, String>,
     default_node_id: &str,
+    mesh_ip: Option<IpAddr>,
 ) -> Vec<(String, Route)> {
     let mut detected_domains: Vec<String> = Vec::new();
 
@@ -115,7 +120,10 @@ pub fn parse_docker_labels(
     }
 
     let target_addr = SocketAddr::from(([127, 0, 0, 1], port));
-    let node = Node::new(default_node_id, target_addr);
+    let mut node = Node::new(default_node_id, target_addr);
+    if let Some(mesh) = mesh_ip {
+        node = node.with_mesh_address(SocketAddr::new(mesh, port));
+    }
 
     detected_domains
         .into_iter()
@@ -131,6 +139,7 @@ pub struct DockerDiscovery {
     client: bollard::Docker,
     registry: Arc<DomainRegistry>,
     default_node_id: String,
+    mesh_ip: Option<IpAddr>,
     container_routes: Arc<RwLock<HashMap<String, Vec<String>>>>,
 }
 
@@ -145,8 +154,16 @@ impl DockerDiscovery {
             client,
             registry,
             default_node_id: default_node_id.into(),
+            mesh_ip: None,
             container_routes: Arc::new(RwLock::new(HashMap::new())),
         }
+    }
+
+    /// Attaches the local node's mesh IP so discovered routes are reachable
+    /// by peers through the WireGuard overlay.
+    pub fn with_mesh_ip(mut self, mesh_ip: IpAddr) -> Self {
+        self.mesh_ip = Some(mesh_ip);
+        self
     }
 
     /// Connects to Docker using default socket defaults (`/var/run/docker.sock` or `DOCKER_HOST`).
@@ -185,7 +202,7 @@ impl DockerDiscovery {
         for container in containers {
             let Some(id) = container.id else { continue };
             let labels = container.labels.unwrap_or_default();
-            let routes = parse_docker_labels(&labels, &self.default_node_id);
+            let routes = parse_docker_labels(&labels, &self.default_node_id, self.mesh_ip);
 
             if !routes.is_empty() {
                 let mut domains_for_container = Vec::new();
@@ -215,7 +232,7 @@ impl DockerDiscovery {
     ) -> Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>> {
         let inspect = self.client.inspect_container(container_id, None).await?;
         let labels = inspect.config.and_then(|c| c.labels).unwrap_or_default();
-        let routes = parse_docker_labels(&labels, &self.default_node_id);
+        let routes = parse_docker_labels(&labels, &self.default_node_id, self.mesh_ip);
 
         let mut added_domains = Vec::new();
         if !routes.is_empty() {
