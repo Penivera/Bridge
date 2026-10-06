@@ -68,6 +68,9 @@ pub struct ClusterController {
     /// Domains that must never leave this node (excluded from route gossip).
     /// Used for node-local services such as the leader-only dashboard ingress.
     pub local_only_domains: Arc<RwLock<HashSet<String>>>,
+    /// Configured bootstrap seed endpoints; periodically re-contacted while no
+    /// peers are known so simultaneously-booted fleets still converge.
+    seeds: Arc<RwLock<Vec<SocketAddr>>>,
 }
 
 impl ClusterController {
@@ -102,6 +105,7 @@ impl ClusterController {
             election_timeout: Duration::from_millis(300),
             ack_timeout: Duration::from_millis(300),
             local_only_domains: Arc::new(RwLock::new(HashSet::new())),
+            seeds: Arc::new(RwLock::new(Vec::new())),
         })
     }
 
@@ -136,6 +140,7 @@ impl ClusterController {
             election_timeout: Duration::from_millis(300),
             ack_timeout: Duration::from_millis(300),
             local_only_domains: Arc::new(RwLock::new(HashSet::new())),
+            seeds: Arc::new(RwLock::new(Vec::new())),
         }
     }
 
@@ -195,6 +200,7 @@ impl ClusterController {
             election_timeout: Duration::from_millis(300),
             ack_timeout: Duration::from_millis(300),
             local_only_domains: Arc::new(RwLock::new(HashSet::new())),
+            seeds: Arc::new(RwLock::new(Vec::new())),
         }
     }
 
@@ -215,22 +221,12 @@ impl ClusterController {
 
     /// Sends a `JoinRequest` to seed nodes and awaits a `JoinResponse` containing active peers.
     pub async fn bootstrap(&self, seeds: &[SocketAddr]) -> Result<usize, Box<dyn std::error::Error + Send + Sync>> {
+        *self.seeds.write().await = seeds.to_vec();
         if seeds.is_empty() {
             return Ok(0);
         }
 
-        let join_msg = ClusterMessage::JoinRequest {
-            node: self.local_node.clone(),
-        };
-        let encoded = join_msg.encode()?;
-
-        // Send JoinRequest to all configured seeds
-        for seed in seeds {
-            if *seed != self.local_node.endpoint {
-                tracing::info!(seed = %seed, "sending UDP JoinRequest to seed node");
-                let _ = self.socket.send_to(&encoded, seed).await;
-            }
-        }
+        self.send_join_requests().await?;
 
         // Wait for JoinResponse with timeout
         let mut buf = vec![0u8; 65535];
@@ -261,6 +257,46 @@ impl ClusterController {
                 tracing::warn!("timeout awaiting JoinResponse from seeds; proceeding as independent node");
                 Ok(0)
             }
+        }
+    }
+
+    /// Sends `JoinRequest` datagrams to all configured seeds (fire-and-forget).
+    /// Responses are handled by the main datagram loop.
+    pub async fn send_join_requests(&self) -> Result<usize, Box<dyn std::error::Error + Send + Sync>> {
+        let seeds = self.seeds.read().await.clone();
+        let join_msg = ClusterMessage::JoinRequest {
+            node: self.local_node.clone(),
+        };
+        let encoded = join_msg.encode()?;
+        let mut sent = 0;
+        for seed in seeds {
+            if seed != self.local_node.endpoint {
+                tracing::info!(seed = %seed, "sending UDP JoinRequest to seed node");
+                let _ = self.socket.send_to(&encoded, seed).await;
+                sent += 1;
+            }
+        }
+        Ok(sent)
+    }
+
+    /// If this node is leader and a higher-ranked peer just appeared,
+    /// restart the bully election so the correct node takes leadership.
+    pub async fn maybe_challenge_leadership(&self) {
+        let role = { self.election_state.read().await.role };
+        if role != ElectionRole::Leader {
+            return;
+        }
+        let my_rank = self.local_node.rank();
+        let higher_exists = {
+            let peers = self.peers.read().await;
+            peers.values().any(|p| p.rank() > my_rank)
+        };
+        if higher_exists {
+            tracing::info!("higher-priority peer joined; restarting bully election");
+            let this = self.clone();
+            tokio::spawn(async move {
+                let _ = this.start_election().await;
+            });
         }
     }
 
@@ -802,6 +838,7 @@ impl ClusterController {
                 tracing::info!(from = %node.node_id, src = %src, "handling incoming JoinRequest");
                 // 1. Register the joining node
                 self.register_peer(node.clone()).await;
+                self.maybe_challenge_leadership().await;
 
                 // 2. Collect current peers list to send back
                 let mut peer_list = Vec::new();
@@ -836,10 +873,12 @@ impl ClusterController {
                 for peer in peers {
                     self.register_peer(peer).await;
                 }
+                self.maybe_challenge_leadership().await;
                 Ok(None)
             }
             ClusterMessage::PeerAnnounce { peer } => {
                 self.register_peer(peer).await;
+                self.maybe_challenge_leadership().await;
                 Ok(None)
             }
             ClusterMessage::Ping { seq, from_node: _ } => {
@@ -1052,6 +1091,7 @@ impl ClusterController {
 
         let mut timer_rx = self.timer_rx.lock().await;
         let mut gossip_ticker = tokio::time::interval(self.gossip_period);
+        let mut rejoin_ticker = tokio::time::interval(Duration::from_secs(3));
 
         {
             let this = self.clone();
@@ -1078,6 +1118,14 @@ impl ClusterController {
                 }
                 _ = gossip_ticker.tick() => {
                     let _ = self.gossip_routes(3).await;
+                }
+                _ = rejoin_ticker.tick() => {
+                    let peers_empty = self.peers.read().await.is_empty();
+                    if peers_empty {
+                        // No peers yet (e.g. simultaneous fleet boot): retry seeds
+                        // so nodes that missed each other's first JoinRequest converge.
+                        let _ = self.send_join_requests().await;
+                    }
                 }
                 Some(timer_event) = timer_rx.recv() => {
                     let mut runtime = AccumulatingRuntime::new();

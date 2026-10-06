@@ -1,6 +1,6 @@
-// Health view — daemon liveness (GET /health, round-trip measured client-side)
+// Health view: daemon liveness (GET /health, round-trip measured client-side)
 // plus an honest subsystem table: only states derivable from real data
-// (status, loaded config) are shown — no invented runtime health.
+// (status, loaded config) are shown: no invented runtime health.
 'use strict';
 (function () {
   window.BridgeViews = window.BridgeViews || {};
@@ -66,7 +66,7 @@
         ${BridgeUI.panel({ title: 'Daemon', body: this._daemonBody(state) })}
         ${BridgeUI.panel({
           title: 'Subsystems',
-          actions: '<span class="muted small">Configured state — not a runtime probe.</span>',
+          actions: '<span class="muted small">Configured state, not a runtime probe.</span>',
           body: this._subsystemsBody(state),
         })}`;
     },
@@ -77,23 +77,23 @@
         ? BridgeUI.metric({ label: 'Liveness', value: 'error', tone: 'danger', sub: this._healthError })
         : BridgeUI.metric({
             label: 'Liveness',
-            value: ok ? 'ok' : String((this._health && this._health.status) || '—'),
+            value: ok ? 'ok' : String((this._health && this._health.status) || '–'),
             tone: ok ? 'success' : 'danger',
           });
       return BridgeUI.metricGrid(
         liveness +
         BridgeUI.metric({
           label: 'Response',
-          value: this._rtt !== null ? BridgeUI.fmt.ms(this._rtt) : '—',
+          value: this._rtt !== null ? BridgeUI.fmt.ms(this._rtt) : '–',
           mono: true,
         }) +
         BridgeUI.metric({
           label: 'Uptime',
-          value: this._health ? BridgeUI.fmt.uptime(this._health.uptime_secs) : '—',
+          value: this._health ? BridgeUI.fmt.uptime(this._health.uptime_secs) : '–',
         }) +
         BridgeUI.metric({
           label: 'Version',
-          value: state.status && state.status.version ? `v${state.status.version}` : '—',
+          value: state.status && state.status.version ? `v${state.status.version}` : '–',
           mono: true,
         })
       );
@@ -106,13 +106,13 @@
         return BridgeUI.skeletons(1, 120);
       }
       return BridgeUI.kvList([
-        ['node_id', s.node_id !== undefined && s.node_id !== null ? String(s.node_id) : '—'],
-        ['version', s.version !== undefined && s.version !== null ? String(s.version) : '—'],
-        ['convergence_state', s.convergence_state || '—'],
-        ['node_count', s.node_count !== undefined && s.node_count !== null ? String(s.node_count) : '—'],
-        ['routes_count', s.routes_count !== undefined && s.routes_count !== null ? String(s.routes_count) : '—'],
-        ['replicas_count', s.replicas_count !== undefined && s.replicas_count !== null ? String(s.replicas_count) : '—'],
-        ['leader_id', s.leader_id || '—'],
+        ['node_id', s.node_id !== undefined && s.node_id !== null ? String(s.node_id) : '–'],
+        ['version', s.version !== undefined && s.version !== null ? String(s.version) : '–'],
+        ['convergence_state', s.convergence_state || '–'],
+        ['node_count', s.node_count !== undefined && s.node_count !== null ? String(s.node_count) : '–'],
+        ['routes_count', s.routes_count !== undefined && s.routes_count !== null ? String(s.routes_count) : '–'],
+        ['replicas_count', s.replicas_count !== undefined && s.replicas_count !== null ? String(s.replicas_count) : '–'],
+        ['leader_id', s.leader_id || '–'],
       ]);
     },
 
@@ -120,9 +120,9 @@
       const flagBadge = (flag) => flag
         ? BridgeUI.badge('enabled', 'accent')
         : BridgeUI.badge('disabled', 'neutral');
-      // null = config slice unavailable — honest placeholder, not a guess.
+      // null = config slice unavailable: honest placeholder, not a guess.
       const cfgFlag = (fn) => {
-        if (this._configError || !this._config) return '<span class="muted">—</span>';
+        if (this._configError || !this._config) return '<span class="muted">–</span>';
         return flagBadge(Boolean(fn(this._config)));
       };
 
@@ -133,7 +133,7 @@
           name: 'Cluster',
           stateHtml: conv
             ? BridgeUI.badge(conv, conv === 'converged' ? 'accent' : 'neutral')
-            : '<span class="muted">—</span>',
+            : '<span class="muted">–</span>',
         },
         { name: 'Discovery', stateHtml: cfgFlag(c => c.discovery && c.discovery.enabled) },
         { name: 'IPC', stateHtml: cfgFlag(c => c.ipc && c.ipc.enabled) },

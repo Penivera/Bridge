@@ -1,4 +1,4 @@
-// Routes — routing table with per-route detail drawer and traffic stats.
+// Routes: routing table with per-route detail drawer and traffic stats.
 (function () {
   'use strict';
 
@@ -59,7 +59,7 @@
     _tableHtml(state) {
       if (!Array.isArray(state.routes)) {
         const body = state.errors && state.errors.routes
-          ? BridgeUI.errorState('routes unavailable — retrying', state.errors.routes)
+          ? BridgeUI.errorState('routes unavailable, retrying', state.errors.routes)
           : BridgeUI.skeletons(1, 220);
         return BridgeUI.panel({ title: 'Routes', flush: true, body });
       }
@@ -68,9 +68,9 @@
         !q || String(r.domain == null ? '' : r.domain).toLowerCase().includes(q));
       const table = BridgeUI.table({
         columns: [
-          { label: 'Hostname', primary: true, render: r => `<span class="mono">${BridgeUI.esc(r.domain != null ? r.domain : '—')}</span>` },
-          { label: 'Destination', mono: true, render: r => BridgeUI.esc(r.node_id != null ? r.node_id : '—') },
-          { label: 'Backend', mono: true, render: r => BridgeUI.esc(r.target_addr != null ? r.target_addr : '—') },
+          { label: 'Hostname', primary: true, render: r => `<span class="mono">${BridgeUI.esc(r.domain != null ? r.domain : '–')}</span>` },
+          { label: 'Destination', mono: true, render: r => BridgeUI.esc(r.node_id != null ? r.node_id : '–') },
+          { label: 'Backend', mono: true, render: r => BridgeUI.esc(r.target_addr != null ? r.target_addr : '–') },
           { label: 'Targets', num: true, render: r => `${BridgeUI.fmt.num(r.targets_count)}${r.has_hash_ring ? ' ' + BridgeUI.badge('hash ring', 'accent') : ''}` },
           { label: 'Requests', render: r => { const m = routeMetric(state, r.domain); return BridgeUI.fmt.num(m && m.requests); } },
           { label: 'Errors', render: r => {
@@ -102,17 +102,17 @@
       const targets = Array.isArray(r.targets) ? r.targets : [];
       body.innerHTML = `
         <div class="detail-grid">
-          ${detailItem('Hostname', BridgeUI.esc(r.domain != null ? r.domain : '—'), true)}
-          ${detailItem('Destination', BridgeUI.esc(r.node_id != null ? r.node_id : '—'))}
-          ${detailItem('Backend', BridgeUI.esc(r.target_addr != null ? r.target_addr : '—'), true)}
+          ${detailItem('Hostname', BridgeUI.esc(r.domain != null ? r.domain : '–'), true)}
+          ${detailItem('Destination', BridgeUI.esc(r.node_id != null ? r.node_id : '–'))}
+          ${detailItem('Backend', BridgeUI.esc(r.target_addr != null ? r.target_addr : '–'), true)}
           ${detailItem('Targets', BridgeUI.fmt.num(r.targets_count != null ? r.targets_count : targets.length))}
           ${detailItem('Hash Ring', BridgeUI.badge(r.has_hash_ring ? 'yes' : 'no', r.has_hash_ring ? 'accent' : 'neutral'))}
         </div>
         <div class="detail-section-title">Targets</div>
         ${BridgeUI.table({
           columns: [
-            { label: 'Node', mono: true, render: t => BridgeUI.esc(t.node_id != null ? t.node_id : '—') },
-            { label: 'Address', mono: true, render: t => BridgeUI.esc(t.address != null ? t.address : '—') },
+            { label: 'Node', mono: true, render: t => BridgeUI.esc(t.node_id != null ? t.node_id : '–') },
+            { label: 'Address', mono: true, render: t => BridgeUI.esc(t.address != null ? t.address : '–') },
           ],
           rows: targets,
           empty: 'No targets',

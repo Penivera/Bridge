@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Getting started — BRIDGE docs</title>
+  <title>Getting started // BRIDGE docs</title>
   <meta name="description" content="Install BRIDGE, run a standalone node with its first route, then join a second node to the mesh.">
   <link rel="icon" type="image/png" href="../assets/favicon.png">
   <link rel="stylesheet" href="../assets/style.css">
@@ -58,7 +58,7 @@
 
       <h2 id="standalone-config">2. Minimal standalone config</h2>
       <p>
-        A single node runs fine on its own — omit the <code>[node]</code> section entirely
+        A single node runs fine on its own: omit the <code>[node]</code> section entirely
         and BRIDGE operates in standalone mode. Edit <code>/etc/bridge/bridge.toml</code>:
       </p>
       <div class="codeblock">
@@ -102,7 +102,7 @@ upstream = "127.0.0.1:3000"</code></pre>
       </div>
       <p>
         In <code>Direct</code> mode the daemon reverse-proxies HTTP for that hostname to
-        the upstream. Routes can also come from Docker auto-discovery — labeled containers
+        the upstream. Routes can also come from Docker auto-discovery: labeled containers
         become routes automatically when <code>[discovery]</code> is enabled.
       </p>
 
@@ -168,7 +168,7 @@ endpoint = "203.0.113.10:51820"</code></pre>
       <p>
         The WireGuard mesh comes up on the <code>10.8.0.x</code> overlay; keys are
         auto-generated if not configured. The <code>priority</code> field feeds the bully
-        election — the highest-priority alive node becomes leader and holds the ingress
+        election: the highest-priority alive node becomes leader and holds the ingress
         entrypoint. Restart both daemons after editing the config.
       </p>
 

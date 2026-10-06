@@ -1,4 +1,4 @@
-/* BRIDGE public site — shared script.
+/* BRIDGE public site: shared script.
    Vanilla only: mobile nav toggle, copy-to-clipboard buttons,
    active-nav highlighting. No dependencies, no build step. */
 (function () {

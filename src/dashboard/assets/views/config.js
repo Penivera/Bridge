@@ -1,4 +1,4 @@
-// Runtime view (file: config.js, route: runtime) — configuration editor
+// Runtime view (file: config.js, route: runtime): configuration editor
 // backed by GET + PUT /api/v1/config.
 //
 // Preservation contract: the form only covers well-known operational fields.
@@ -57,7 +57,7 @@
     _dirty: false,
     _rawMode: false,
     _rawBase: null,    // doc captured when entering raw mode (form edits carried over)
-    _noFile: false,    // set after a 409 — saving is impossible without a config file
+    _noFile: false,    // set after a 409: saving is impossible without a config file
 
     async render(container) {
       const root = (this._root = container);
@@ -85,7 +85,7 @@
     update() {
       // Intentionally a no-op: /api/v1/config is not part of the poll cycle,
       // and re-rendering on a tick could clobber a dirty form. The dirty
-      // guard (this._dirty) is the contract — nothing here may touch the DOM.
+      // guard (this._dirty) is the contract: nothing here may touch the DOM.
     },
 
     destroy() {
@@ -97,7 +97,7 @@
     _renderShell(isDefaults) {
       const root = this._root;
       root.innerHTML = `
-        ${isDefaults ? `<div class="form-banner form-banner--info">No configuration loaded — the daemon is running on built-in defaults. Saving changes will fail (409) until the daemon is started with a config file.</div>` : ''}
+        ${isDefaults ? `<div class="form-banner form-banner--info">No configuration loaded: the daemon is running on built-in defaults. Saving changes will fail (409) until the daemon is started with a config file.</div>` : ''}
         <div id="cfg-banner"></div>
         <section class="panel">
           <div class="panel-header">
@@ -198,7 +198,7 @@
             type: 'textarea',
             value: text,
             mono: true,
-            hint: 'The full document is sent verbatim on Save — keep any sections you want to preserve.',
+            hint: 'The full document is sent verbatim on Save: keep any sections you want to preserve.',
           })}
         </div>` + this._actionsHtml();
     },
@@ -234,20 +234,20 @@
 
     _nodeId(n) {
       if (typeof n === 'string') return n;
-      return (n && (n.node_id || n.id || n.name)) || '—';
+      return (n && (n.node_id || n.id || n.name)) || '–';
     },
 
     _nodeEndpoint(n) {
-      if (!n || typeof n !== 'object') return '—';
-      return n.endpoint || n.address || n.mesh_address || '—';
+      if (!n || typeof n !== 'object') return '–';
+      return n.endpoint || n.address || n.mesh_address || '–';
     },
 
     _svcField(s, keys) {
-      if (!s || typeof s !== 'object') return '—';
+      if (!s || typeof s !== 'object') return '–';
       for (const k of keys) {
         if (s[k] !== undefined && s[k] !== null && s[k] !== '') return String(s[k]);
       }
-      return '—';
+      return '–';
     },
 
     /* ------------------------------------------------------------ dirty */
@@ -268,7 +268,7 @@
           continue;
         }
         // Absent in the pristine doc: only write the value if the operator
-        // actually changed it from the rendered default — otherwise an
+        // actually changed it from the rendered default: otherwise an
         // untouched form would appear dirty (and grow phantom keys on save).
         const initial = f.type === 'checkbox' ? false
           : f.type === 'list' ? []
@@ -352,7 +352,7 @@
       const errText = res.error.error || 'Save failed';
       const code = res.error.code || '';
       if (res.status === 409 || code === 'CONFLICT') {
-        this._setBanner('error', 'Running on defaults — no config file loaded, changes cannot be persisted.');
+        this._setBanner('error', 'Running on defaults: no config file loaded, changes cannot be persisted.');
         this._noFile = true;
         save.disabled = true;
         return;
@@ -378,7 +378,7 @@
       if (!body) return;
       this._clearBanner();
       this._clearFieldErrors();
-      // Restore from pristine — discards form edits and (in raw mode) edits
+      // Restore from pristine: discards form edits and (in raw mode) edits
       // made to the textarea since entering raw mode.
       body.innerHTML = this._rawMode ? this._rawBodyHtml() : this._formBodyHtml();
       this._fixupBody();

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Operations — BRIDGE docs</title>
+  <title>Operations // BRIDGE docs</title>
   <meta name="description" content="Run BRIDGE in production: dashboard tour, CLI reference, health and JSON API endpoints, systemd management, graceful shutdown, and upgrades.">
   <link rel="icon" type="image/png" href="../assets/favicon.png">
   <link rel="stylesheet" href="../assets/style.css">
@@ -46,7 +46,7 @@
       <h2 id="dashboard">Dashboard tour</h2>
       <p>
         The embedded operations dashboard is a dark, Cloudflare-inspired ops console served
-        by the daemon itself — no separate process. By default it listens on
+        by the daemon itself: no separate process. By default it listens on
         <code>http://127.0.0.1:9090</code> (loopback only). Its views:
       </p>
       <div class="table-wrap">
@@ -57,7 +57,7 @@
             <tr><td>Nodes</td><td>Every known member with its lifecycle state (Alive / Suspected / Dead / Recovered), endpoint, and priority.</td></tr>
             <tr><td>Mesh</td><td>The WireGuard overlay: mesh IPs, links, and connectivity between nodes.</td></tr>
             <tr><td>Routes</td><td>Static and Docker-discovered routes, their upstreams, and consistent-hash targets.</td></tr>
-            <tr><td>Events</td><td>Real-time event feed streamed over WebSocket — elections, handoffs, membership changes, failovers.</td></tr>
+            <tr><td>Events</td><td>Real-time event feed streamed over WebSocket: elections, handoffs, membership changes, failovers.</td></tr>
             <tr><td>Config</td><td>The running configuration as loaded by the daemon.</td></tr>
           </tbody>
         </table>
@@ -86,7 +86,7 @@
 
       <h2 id="health">Health endpoint</h2>
       <p>
-        <code>GET /health</code> on the dashboard listener reports daemon health — suitable
+        <code>GET /health</code> on the dashboard listener reports daemon health, suitable
         for load-balancer or monitoring checks:
       </p>
       <div class="codeblock">
@@ -125,14 +125,14 @@ journalctl -u bridge -f     <span class="c"># follow daemon logs</span></code></
       </div>
       <p>
         The unit runs the daemon as the unprivileged <code>bridge</code> user with
-        <code>CAP_NET_BIND_SERVICE</code> and <code>CAP_NET_ADMIN</code> — enough to bind
+        <code>CAP_NET_BIND_SERVICE</code> and <code>CAP_NET_ADMIN</code>: enough to bind
         ports 80/443 and configure WireGuard without full root.
       </p>
 
       <h2 id="shutdown">Graceful shutdown</h2>
       <p>
-        On stop or restart, the daemon's shutdown coordinator drains subsystems in order —
-        ingress first, background workers last — and persists state to disk. A restarted node
+        On stop or restart, the daemon's shutdown coordinator drains subsystems in order
+        (ingress first, background workers last) and persists state to disk. A restarted node
         resumes from the last known fleet state instead of rejoining cold.
       </p>
 

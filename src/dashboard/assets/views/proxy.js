@@ -1,4 +1,4 @@
-// Proxy — read-only proxy configuration & state (mode, listeners, UDP services).
+// Proxy: read-only proxy configuration & state (mode, listeners, UDP services).
 (function () {
   'use strict';
 
@@ -9,7 +9,7 @@
     Managed: 'Managed Coolify',
   };
 
-  // Config values may be strings, numbers, booleans, or serialized structs —
+  // Config values may be strings, numbers, booleans, or serialized structs:
   // render objects as JSON so nothing shows up as "[object Object]".
   function raw(v) {
     if (v === null || v === undefined) return v;
@@ -35,7 +35,7 @@
     update(state) {
       if (!this._root || !this._root.isConnected) return;
       if (!state.config && state.errors.config) {
-        this._fetchConfig(state); // previous fetch errored — retry on poll ticks
+        this._fetchConfig(state); // previous fetch errored: retry on poll ticks
         return;
       }
       if (state.config) this._renderAll(state);
@@ -65,7 +65,7 @@
       let cfg = state.config;
       if (!cfg) {
         this._root.innerHTML = state.errors.config
-          ? BridgeUI.errorState('config unavailable — retrying', state.errors.config)
+          ? BridgeUI.errorState('config unavailable, retrying', state.errors.config)
           : BridgeUI.skeletons(2, 150);
         return;
       }
@@ -89,8 +89,8 @@
 
       const metrics = BridgeUI.metricGrid([
         BridgeUI.metric({ label: 'Mode', value: mode, tone: 'accent' }),
-        BridgeUI.metric({ label: 'Listeners', value: listeners || '—' }),
-        BridgeUI.metric({ label: 'Routes', value: routesCount != null ? BridgeUI.fmt.num(routesCount) : '—' }),
+        BridgeUI.metric({ label: 'Listeners', value: listeners || '–' }),
+        BridgeUI.metric({ label: 'Routes', value: routesCount != null ? BridgeUI.fmt.num(routesCount) : '–' }),
         BridgeUI.metric({ label: 'UDP Services', value: BridgeUI.fmt.num(udpRows.length) }),
       ].join(''));
 
@@ -113,8 +113,8 @@
         body: BridgeUI.table({
           columns: [
             { label: 'Listen Port', num: true, render: u => BridgeUI.fmt.num(u.listen_port) },
-            { label: 'Upstream', mono: true, render: u => BridgeUI.esc(raw(u.upstream) != null ? raw(u.upstream) : '—') },
-            { label: 'Node', mono: true, render: u => BridgeUI.esc(u.node_id != null ? u.node_id : '—') },
+            { label: 'Upstream', mono: true, render: u => BridgeUI.esc(raw(u.upstream) != null ? raw(u.upstream) : '–') },
+            { label: 'Node', mono: true, render: u => BridgeUI.esc(u.node_id != null ? u.node_id : '–') },
           ],
           rows: udpRows,
           empty: 'No UDP services',

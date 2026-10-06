@@ -1,4 +1,4 @@
-// Overview — cluster at a glance: health metrics, node & route tables, recent events.
+// Overview: cluster at a glance: health metrics, node & route tables, recent events.
 (function () {
   'use strict';
 
@@ -20,8 +20,8 @@
     return `
       <div class="event-row${isNew ? ' event-row--new' : ''}">
         <div class="event-time">${BridgeUI.fmt.time(e.timestamp)} · ${BridgeUI.fmt.ago(e.timestamp)}</div>
-        <div class="event-sev-col"><span class="severity-bar severity-bar--${sev}"></span>${BridgeUI.esc(e.event_type || '—')}</div>
-        <div class="event-node">${BridgeUI.esc(e.node_id || '—')}</div>
+        <div class="event-sev-col"><span class="severity-bar severity-bar--${sev}"></span>${BridgeUI.esc(e.event_type || '–')}</div>
+        <div class="event-node">${BridgeUI.esc(e.node_id || '–')}</div>
         <div class="event-message">${BridgeUI.esc(e.message || '')}</div>
       </div>`;
   }
@@ -104,7 +104,7 @@
       const s = state.status;
       if (!s) {
         el.innerHTML = state.errors.status
-          ? BridgeUI.errorState('status unavailable — retrying', state.errors.status)
+          ? BridgeUI.errorState('status unavailable, retrying', state.errors.status)
           : BridgeUI.skeletons(1, 96);
         return;
       }
@@ -119,10 +119,10 @@
         BridgeUI.metric({ label: 'Nodes', value: BridgeUI.fmt.num(s.node_count), sub: healthy !== null ? `${healthy} healthy` : '' }),
         BridgeUI.metric({ label: 'Leader', value: s.leader_id || 'No Leader', mono: true, tone: noLeader ? 'danger' : '', sub: s.is_leader ? 'this node' : 'peer' }),
         BridgeUI.metric({ label: 'Dashboard master', value: s.is_dashboard_master ? 'this node' : (s.leader_id || 'none'), mono: true, tone: s.is_dashboard_master ? 'accent' : '', sub: 'public ingress owner' }),
-        BridgeUI.metric({ label: 'Mesh', value: s.convergence_state, tone: s.convergence_state === 'converged' ? 'success' : 'warning', sub: `${s.node_count != null ? s.node_count : '—'} nodes` }),
-        BridgeUI.metric({ label: 'Requests', value: rates ? `${rates.rps.toFixed(1)} req/s` : '—', sub: 'rolling avg' }),
-        BridgeUI.metric({ label: 'Error Rate', value: rates ? BridgeUI.fmt.pct(rates.errorRate) : '—', tone: rates ? (rates.errorRate > 0.01 ? 'danger' : rates.errorRate > 0 ? 'warning' : '') : '' }),
-        BridgeUI.metric({ label: 'Routes', value: BridgeUI.fmt.num(s.routes_count), sub: `${s.replicas_count != null ? s.replicas_count : '—'} replicas` }),
+        BridgeUI.metric({ label: 'Mesh', value: s.convergence_state, tone: s.convergence_state === 'converged' ? 'success' : 'warning', sub: `${s.node_count != null ? s.node_count : '–'} nodes` }),
+        BridgeUI.metric({ label: 'Requests', value: rates ? `${rates.rps.toFixed(1)} req/s` : '–', sub: 'rolling avg' }),
+        BridgeUI.metric({ label: 'Error Rate', value: rates ? BridgeUI.fmt.pct(rates.errorRate) : '–', tone: rates ? (rates.errorRate > 0.01 ? 'danger' : rates.errorRate > 0 ? 'warning' : '') : '' }),
+        BridgeUI.metric({ label: 'Routes', value: BridgeUI.fmt.num(s.routes_count), sub: `${s.replicas_count != null ? s.replicas_count : '–'} replicas` }),
       ].join(''));
     },
 
@@ -132,20 +132,20 @@
       let body;
       if (!Array.isArray(state.nodes)) {
         body = state.errors.nodes
-          ? BridgeUI.errorState('nodes unavailable — retrying', state.errors.nodes)
+          ? BridgeUI.errorState('nodes unavailable, retrying', state.errors.nodes)
           : BridgeUI.skeletons(1, 140);
       } else {
         body = BridgeUI.table({
           columns: [
-            { label: 'Node', primary: true, render: n => `<span class="mono">${BridgeUI.esc(n.node_id != null ? n.node_id : '—')}</span>${n.is_leader ? ' ' + BridgeUI.badge('LEADER', 'leader') : ''}` },
+            { label: 'Node', primary: true, render: n => `<span class="mono">${BridgeUI.esc(n.node_id != null ? n.node_id : '–')}</span>${n.is_leader ? ' ' + BridgeUI.badge('LEADER', 'leader') : ''}` },
             { label: 'Status', render: n => `${BridgeUI.statusDot(n.health)} ${BridgeUI.esc(n.health || 'unknown')}` },
-            { label: 'Mesh IP', mono: true, render: n => BridgeUI.esc(n.mesh_ip != null ? n.mesh_ip : '—') },
-            { label: 'Endpoint', mono: true, render: n => BridgeUI.esc(n.endpoint != null ? n.endpoint : '—') },
+            { label: 'Mesh IP', mono: true, render: n => BridgeUI.esc(n.mesh_ip != null ? n.mesh_ip : '–') },
+            { label: 'Endpoint', mono: true, render: n => BridgeUI.esc(n.endpoint != null ? n.endpoint : '–') },
             { label: 'Priority', num: true, render: n => BridgeUI.fmt.num(n.priority) },
             { label: 'Uptime', render: n => BridgeUI.fmt.uptime(n.uptime_secs) },
           ],
           rows: state.nodes,
-          empty: 'No nodes — running standalone',
+          empty: 'No nodes, running standalone',
         });
       }
       el.innerHTML = BridgeUI.panel({ title: 'Node Health', flush: true, body });
@@ -157,14 +157,14 @@
       let body;
       if (!Array.isArray(state.routes)) {
         body = state.errors.routes
-          ? BridgeUI.errorState('routes unavailable — retrying', state.errors.routes)
+          ? BridgeUI.errorState('routes unavailable, retrying', state.errors.routes)
           : BridgeUI.skeletons(1, 140);
       } else {
         body = BridgeUI.table({
           columns: [
-            { label: 'Hostname', primary: true, render: r => `<span class="mono">${BridgeUI.esc(r.domain != null ? r.domain : '—')}</span>` },
-            { label: 'Destination', mono: true, render: r => BridgeUI.esc(r.node_id != null ? r.node_id : '—') },
-            { label: 'Backend', mono: true, render: r => BridgeUI.esc(r.target_addr != null ? r.target_addr : '—') },
+            { label: 'Hostname', primary: true, render: r => `<span class="mono">${BridgeUI.esc(r.domain != null ? r.domain : '–')}</span>` },
+            { label: 'Destination', mono: true, render: r => BridgeUI.esc(r.node_id != null ? r.node_id : '–') },
+            { label: 'Backend', mono: true, render: r => BridgeUI.esc(r.target_addr != null ? r.target_addr : '–') },
             { label: 'Targets', render: r => `${BridgeUI.fmt.num(r.targets_count)}${r.has_hash_ring ? ' ' + BridgeUI.badge('hash ring', 'accent') : ''}` },
             { label: 'Requests', render: r => { const m = routeMetric(state, r.domain); return BridgeUI.fmt.num(m && m.requests); } },
             { label: 'P50', render: r => { const m = routeMetric(state, r.domain); return BridgeUI.fmt.ms(m && m.p50_ms); } },

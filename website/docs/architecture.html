@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Architecture — BRIDGE docs</title>
+  <title>Architecture // BRIDGE docs</title>
   <meta name="description" content="BRIDGE internals: the mesh layer, SWIM gossip membership, bully leader election, proxy modes, handoff tiers, and failure behavior.">
   <link rel="icon" type="image/png" href="../assets/favicon.png">
   <link rel="stylesheet" href="../assets/style.css">
@@ -60,7 +60,7 @@
             <tr><td>Discovery</td><td>Watches the Docker socket; labeled containers become routes automatically alongside static config routes.</td></tr>
             <tr><td>Failover duplicator</td><td>Replicates marked workloads to peer nodes on failure via the container driver, with failback and cooldowns.</td></tr>
             <tr><td>IPC</td><td>Unix socket (<code>/tmp/bridge.sock</code>) the <code>bridge</code> CLI uses to talk to the running daemon.</td></tr>
-            <tr><td>Dashboard</td><td>Embedded operations console — dark, Cloudflare-inspired — on <code>127.0.0.1:9090</code> by default, with a JSON API and WebSocket event stream.</td></tr>
+            <tr><td>Dashboard</td><td>Embedded operations console (dark, Cloudflare-inspired) on <code>127.0.0.1:9090</code> by default, with a JSON API and WebSocket event stream.</td></tr>
           </tbody>
         </table>
       </div>
@@ -87,7 +87,7 @@
       <h2 id="leader">The leader's role</h2>
       <p>
         The bully algorithm elects the highest-priority alive node as leader. The leader
-        holds the fleet's ingress entrypoint — the Cloudflare Tunnel, the DNS failover
+        holds the fleet's ingress entrypoint: the Cloudflare Tunnel, the DNS failover
         target, or the floating IP, depending on the configured handoff tier. All nodes
         still serve traffic: the leader terminates ingress and routes requests across the
         mesh to whichever node hosts the target service.
@@ -132,7 +132,7 @@
       <h3>L4 SNI Passthrough</h3>
       <p>
         BRIDGE reads the TLS SNI hostname and forwards the raw stream without terminating
-        TLS — certificates live on the backends. Use this when you need end-to-end TLS to
+        TLS: certificates live on the backends. Use this when you need end-to-end TLS to
         your applications.
       </p>
       <h3>Managed Coolify</h3>
@@ -144,7 +144,7 @@
       <h2 id="handoff">Ingress handoff tiers</h2>
       <p>
         Handoff decides how the public entrypoint survives a leader change. Configure it
-        under <code>[handoff]</code> — see <a href="configuration.html">Configuration</a>.
+        under <code>[handoff]</code>; see <a href="configuration.html">Configuration</a>.
       </p>
       <div class="table-wrap">
         <table>
@@ -180,7 +180,7 @@
       <h3>Leader loss</h3>
       <p>
         Gossip marks the leader Suspected, then Dead. The remaining nodes run the bully
-        election; the highest-priority alive node wins and performs the configured handoff —
+        election; the highest-priority alive node wins and performs the configured handoff:
         taking over the Cloudflare Tunnel or moving DNS / the floating IP. Traffic resumes
         against the new leader without manual intervention.
       </p>

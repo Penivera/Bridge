@@ -1,8 +1,8 @@
-// BridgeAPI — centralized daemon API access. Every method resolves to
+// BridgeAPI: centralized daemon API access. Every method resolves to
 // { data, error } and never rejects; errors use the daemon's structured
 // shape { error: "message", code: "ERROR_CODE" }.
 
-// escapeHtml — sanitize API strings before interpolating into innerHTML
+// escapeHtml: sanitize API strings before interpolating into innerHTML
 function escapeHtml(str) {
   return String(str).replace(/[&<>"']/g, c => ({
     '&': '&amp;',
@@ -24,7 +24,7 @@ const BridgeAPI = {
       const res = await fetch(path, opts);
       const data = await res.json().catch(() => null);
       if (res.status === 401) {
-        // Session expired or missing — the auth middleware rejects API calls.
+        // Session expired or missing: the auth middleware rejects API calls.
         window.location.href = '/login';
         return { data: null, error: data || { error: 'authentication required', code: 'UNAUTHORIZED' }, status: 401 };
       }
@@ -72,7 +72,7 @@ const BridgeAPI = {
   failback(domain)     { return this.post('/api/v1/failback', { domain }); },
 };
 
-// BridgeStream — WebSocket event stream with exponential-backoff reconnect.
+// BridgeStream: WebSocket event stream with exponential-backoff reconnect.
 class BridgeStream {
   constructor() {
     this._ws = null;
@@ -94,7 +94,7 @@ class BridgeStream {
       try {
         event = JSON.parse(e.data);
       } catch (_) {
-        return; // malformed frame — ignore, stream stays alive
+        return; // malformed frame: ignore, stream stays alive
       }
       this._listeners.forEach(fn => {
         try { fn(event); } catch (_) { /* a broken view must not kill the stream */ }

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Configuration — BRIDGE docs</title>
+  <title>Configuration // BRIDGE docs</title>
   <meta name="description" content="Full bridge.toml reference: discovery order, proxy, dashboard, discovery, IPC, node identity, services, handoff, sentry, and replication.">
   <link rel="icon" type="image/png" href="../assets/favicon.png">
   <link rel="stylesheet" href="../assets/style.css">
@@ -46,9 +46,9 @@
       <h2 id="discovery">Config discovery</h2>
       <p>The daemon looks for its configuration in this order:</p>
       <ol>
-        <li><code>./bridge.toml</code> — the current working directory</li>
-        <li><code>$BRIDGE_CONFIG</code> — path from the environment variable</li>
-        <li><code>/etc/bridge/bridge.toml</code> — the system location the installer uses</li>
+        <li><code>./bridge.toml</code>: the current working directory</li>
+        <li><code>$BRIDGE_CONFIG</code>: path from the environment variable</li>
+        <li><code>/etc/bridge/bridge.toml</code>: the system location the installer uses</li>
       </ol>
       <p>
         You can always override discovery with <code>bridge --config /path/to/bridge.toml</code>.
@@ -83,7 +83,7 @@ socket_path = "/tmp/bridge.sock"
 level = "INFO"
 format = "text"
 
-<span class="c"># This node's cluster identity (optional — omit for standalone)</span>
+<span class="c"># This node's cluster identity (optional, omit for standalone)</span>
 [node]
 id = "node-01"
 mesh_ip = "10.8.0.1"
@@ -140,7 +140,7 @@ mode = "tunnel"            <span class="c"># none | dns | tunnel | floating_ip</
           <thead><tr><th>Key</th><th>Type</th><th>Description</th></tr></thead>
           <tbody>
             <tr><td><code>enabled</code></td><td>boolean</td><td>Serve the embedded operations dashboard.</td></tr>
-            <tr><td><code>listen_addr</code></td><td>string</td><td>Default <code>127.0.0.1:9090</code> — loopback only unless changed.</td></tr>
+            <tr><td><code>listen_addr</code></td><td>string</td><td>Default <code>127.0.0.1:9090</code>: loopback only unless changed.</td></tr>
           </tbody>
         </table>
       </div>
@@ -189,7 +189,7 @@ mode = "tunnel"            <span class="c"># none | dns | tunnel | floating_ip</
             <tr><td><code>mesh_ip</code></td><td>string</td><td>This node's address on the WireGuard overlay, e.g. <code>10.8.0.1</code>.</td></tr>
             <tr><td><code>endpoint</code></td><td>string</td><td>Public address peers dial, <code>host:port</code>.</td></tr>
             <tr><td><code>listen_port</code></td><td>number</td><td>WireGuard listen port, e.g. <code>51820</code>. Keys are auto-generated if not configured.</td></tr>
-            <tr><td><code>priority</code></td><td>number</td><td>Bully election priority — higher wins leadership among alive nodes.</td></tr>
+            <tr><td><code>priority</code></td><td>number</td><td>Bully election priority: higher wins leadership among alive nodes.</td></tr>
           </tbody>
         </table>
       </div>

@@ -1,4 +1,4 @@
-// Handoffs view — ingress failover mode, tier documentation, handoff config,
+// Handoffs view: ingress failover mode, tier documentation, handoff config,
 // and the two real failover operations exposed by the daemon
 // (POST /api/v1/replicate, POST /api/v1/failback).
 'use strict';
@@ -82,11 +82,11 @@
           label: 'Replicas',
           value: st && st.replicas_count !== undefined && st.replicas_count !== null
             ? BridgeUI.fmt.num(st.replicas_count)
-            : '—',
+            : '–',
         }) +
         BridgeUI.metric({
           label: 'Convergence',
-          value: st ? (st.convergence_state || '—') : '—',
+          value: st ? (st.convergence_state || '–') : '–',
         })
       );
     },
@@ -126,7 +126,7 @@
         return;
       }
       el.innerHTML = BridgeUI.kvList([
-        ['mode', h.mode !== undefined && h.mode !== null ? String(h.mode) : '—'],
+        ['mode', h.mode !== undefined && h.mode !== null ? String(h.mode) : '–'],
         ['tunnel', h.tunnel ? 'yes' : 'no'],
         ['dns', h.dns ? 'yes' : 'no'],
       ]);
@@ -234,7 +234,7 @@
       let msg = res.error.error || 'Request failed';
       if (res.status === 503) {
         // The endpoint is only wired when the failover duplicator runs.
-        msg = `${msg} — the failover duplicator is not running`;
+        msg = `${msg}; the failover duplicator is not running`;
       }
       el.innerHTML = `<div class="form-banner form-banner--error">${BridgeUI.esc(msg)}</div>`;
     },

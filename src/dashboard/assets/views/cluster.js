@@ -1,4 +1,4 @@
-// Cluster view — read-only cluster membership (poll-driven via state) and
+// Cluster view: read-only cluster membership (poll-driven via state) and
 // cluster configuration ([node], [[seeds]], [[nodes]] from GET /api/v1/config).
 'use strict';
 (function () {
@@ -54,7 +54,7 @@
         } else {
           const conv = st.convergence_state || '';
           m.innerHTML = BridgeUI.metricGrid(
-            BridgeUI.metric({ label: 'Node ID', value: st.node_id || '—', mono: true }) +
+            BridgeUI.metric({ label: 'Node ID', value: st.node_id || '–', mono: true }) +
             BridgeUI.metric({
               label: 'Role',
               value: st.is_leader ? 'LEADER' : 'PEER',
@@ -66,7 +66,7 @@
             BridgeUI.metric({ label: 'Nodes', value: BridgeUI.fmt.num(st.node_count) }) +
             BridgeUI.metric({
               label: 'Convergence',
-              value: conv || '—',
+              value: conv || '–',
               tone: conv === 'converged' ? 'success' : (conv ? 'warning' : ''),
             })
           );
@@ -84,19 +84,19 @@
             columns: [
               {
                 label: 'Node', mono: true, primary: true,
-                render: n => BridgeUI.esc(n.node_id || '—') +
+                render: n => BridgeUI.esc(n.node_id || '–') +
                   (n.is_leader ? ` ${BridgeUI.badge('LEADER', 'leader')}` : ''),
               },
               {
                 label: 'Status',
                 render: n => `${BridgeUI.statusDot(n.health)} ${BridgeUI.healthBadge(n.health)}`,
               },
-              { label: 'Mesh IP', mono: true, render: n => BridgeUI.esc(n.mesh_ip || '—') },
-              { label: 'Endpoint', mono: true, render: n => BridgeUI.esc(n.endpoint || '—') },
+              { label: 'Mesh IP', mono: true, render: n => BridgeUI.esc(n.mesh_ip || '–') },
+              { label: 'Endpoint', mono: true, render: n => BridgeUI.esc(n.endpoint || '–') },
               { label: 'Priority', num: true, render: n => BridgeUI.fmt.num(n.priority) },
             ],
             rows: state.nodes,
-            empty: 'No cluster peers — standalone mode',
+            empty: 'No cluster peers, standalone mode',
           });
         }
       }
@@ -122,7 +122,7 @@
       if (nodeEl) {
         const node = cfg.node;
         if (!node) {
-          nodeEl.innerHTML = BridgeUI.emptyState('No [node] section — running standalone');
+          nodeEl.innerHTML = BridgeUI.emptyState('No [node] section, running standalone');
         } else {
           nodeEl.innerHTML = BridgeUI.kvList([
             ['id', node.id],
@@ -144,7 +144,7 @@
           columns: [
             {
               label: 'Endpoint', mono: true, primary: true,
-              render: s => BridgeUI.esc(typeof s === 'string' ? s : (s && s.endpoint) || '—'),
+              render: s => BridgeUI.esc(typeof s === 'string' ? s : (s && s.endpoint) || '–'),
             },
           ],
           rows: seeds,
@@ -161,11 +161,11 @@
           columns: [
             {
               label: 'Node ID', mono: true, primary: true,
-              render: n => BridgeUI.esc((n && (n.node_id || n.id)) || '—'),
+              render: n => BridgeUI.esc((n && (n.node_id || n.id)) || '–'),
             },
             {
               label: 'Endpoint', mono: true,
-              render: n => BridgeUI.esc((n && (n.address || n.endpoint)) || '—'),
+              render: n => BridgeUI.esc((n && (n.address || n.endpoint)) || '–'),
             },
           ],
           rows: nodes,

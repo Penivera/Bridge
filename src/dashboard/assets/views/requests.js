@@ -1,4 +1,4 @@
-// Requests — traffic totals and per-route request metrics.
+// Requests: traffic totals and per-route request metrics.
 (function () {
   'use strict';
 
@@ -24,7 +24,7 @@
       if (!state.metrics) {
         if (state.errors.metrics) {
           metricsEl.innerHTML = '';
-          tableEl.innerHTML = BridgeUI.errorState('metrics unavailable — retrying', state.errors.metrics);
+          tableEl.innerHTML = BridgeUI.errorState('metrics unavailable, retrying', state.errors.metrics);
         } else {
           metricsEl.innerHTML = BridgeUI.skeletons(1, 96);
           tableEl.innerHTML = BridgeUI.skeletons(1, 200);
@@ -46,8 +46,8 @@
       metricsEl.innerHTML = BridgeUI.metricGrid([
         BridgeUI.metric({ label: 'Total Requests', value: BridgeUI.fmt.num(totalReq) }),
         BridgeUI.metric({ label: 'Errors', value: BridgeUI.fmt.num(totalErr), tone: totalErr > 0 ? 'danger' : '' }),
-        BridgeUI.metric({ label: 'Requests/Sec', value: rates ? rates.rps.toFixed(1) : '—' }),
-        BridgeUI.metric({ label: 'Error Rate', value: rates ? BridgeUI.fmt.pct(rates.errorRate) : '—', tone: rates ? (rates.errorRate > 0.01 ? 'danger' : rates.errorRate > 0 ? 'warning' : '') : '' }),
+        BridgeUI.metric({ label: 'Requests/Sec', value: rates ? rates.rps.toFixed(1) : '–' }),
+        BridgeUI.metric({ label: 'Error Rate', value: rates ? BridgeUI.fmt.pct(rates.errorRate) : '–', tone: rates ? (rates.errorRate > 0.01 ? 'danger' : rates.errorRate > 0 ? 'warning' : '') : '' }),
       ].join(''));
 
       const body = rows.length === 0

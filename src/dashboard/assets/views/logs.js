@@ -1,4 +1,4 @@
-// Logs view — daemon log buffer (GET /api/v1/logs, chronological oldest-first,
+// Logs view: daemon log buffer (GET /api/v1/logs, chronological oldest-first,
 // rendered top-to-bottom so the newest line sits at the bottom). Follow mode
 // refetches on every poll tick and pins the stream to the bottom.
 'use strict';
@@ -38,7 +38,7 @@
 
     update() {
       // Follow mode: refetch every poll tick. When follow is off, never touch
-      // the DOM — the operator may be reading/scrolling history.
+      // the DOM: the operator may be reading/scrolling history.
       if (!this.follow || this._inflight) return;
       const root = this._root;
       if (!root || !root.isConnected) return;

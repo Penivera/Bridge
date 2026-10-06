@@ -1,4 +1,4 @@
-// Mesh — WireGuard/gossip topology visualization and peer list.
+// Mesh: WireGuard/gossip topology visualization and peer list.
 (function () {
   'use strict';
 
@@ -59,11 +59,11 @@
       }
       let cls, text;
       if (conv === 'converged') {
-        cls = 'mesh-banner--converged'; text = 'Mesh converged — gossip is healthy';
+        cls = 'mesh-banner--converged'; text = 'Mesh converged: gossip is healthy';
       } else if (conv === 'standalone') {
-        cls = 'mesh-banner--standalone'; text = 'Standalone mode — no cluster peers';
+        cls = 'mesh-banner--standalone'; text = 'Standalone mode: no cluster peers';
       } else {
-        cls = 'mesh-banner--diverged'; text = 'Mesh diverged — check node health';
+        cls = 'mesh-banner--diverged'; text = 'Mesh diverged: check node health';
       }
       slot.innerHTML = `<div class="mesh-banner ${cls}">${text}</div>`;
     },
@@ -89,13 +89,13 @@
       if (!el) return;
       if (!this._mesh) {
         el.innerHTML = this._error
-          ? BridgeUI.errorState('mesh unavailable — retrying', this._error)
+          ? BridgeUI.errorState('mesh unavailable, retrying', this._error)
           : BridgeUI.skeletons(2, 200);
         return;
       }
       const nodes = Array.isArray(this._mesh.nodes) ? this._mesh.nodes : [];
       if (nodes.length === 0) {
-        el.innerHTML = BridgeUI.emptyState('No mesh peers — this node is running standalone');
+        el.innerHTML = BridgeUI.emptyState('No mesh peers, this node is running standalone');
         return;
       }
       el.innerHTML = this._topologyHtml(nodes) + this._peersHtml(nodes);
@@ -121,12 +121,12 @@
         const localRing = node.node_id === localId
           ? '<circle r="17" fill="none" stroke="#737373" stroke-dasharray="3 3"></circle>'
           : '';
-        const tooltip = `${node.node_id != null ? node.node_id : '—'} · ${node.mesh_ip != null ? node.mesh_ip : '—'} · ${health || 'unknown'}`;
+        const tooltip = `${node.node_id != null ? node.node_id : '–'} · ${node.mesh_ip != null ? node.mesh_ip : '–'} · ${health || 'unknown'}`;
         return `
           <g class="mesh-node${hCls}${lCls}" transform="translate(${p.x} ${p.y})">
             ${localRing}
             <circle r="12"></circle>
-            <text y="28" text-anchor="middle">${BridgeUI.esc(node.node_id != null ? node.node_id : '—')}</text>
+            <text y="28" text-anchor="middle">${BridgeUI.esc(node.node_id != null ? node.node_id : '–')}</text>
             <title>${BridgeUI.esc(tooltip)}</title>
           </g>`;
       }).join('');
@@ -136,13 +136,13 @@
     _peersHtml(nodes) {
       const body = BridgeUI.table({
         columns: [
-          { label: 'Node', primary: true, render: n => `<span class="mono">${BridgeUI.esc(n.node_id != null ? n.node_id : '—')}</span>${n.is_leader ? ' ' + BridgeUI.badge('LEADER', 'leader') : ''}` },
+          { label: 'Node', primary: true, render: n => `<span class="mono">${BridgeUI.esc(n.node_id != null ? n.node_id : '–')}</span>${n.is_leader ? ' ' + BridgeUI.badge('LEADER', 'leader') : ''}` },
           { label: 'Status', render: n => `${BridgeUI.statusDot(n.health)} ${BridgeUI.healthBadge(n.health)}` },
-          { label: 'Mesh IP', mono: true, render: n => BridgeUI.esc(n.mesh_ip != null ? n.mesh_ip : '—') },
-          { label: 'Endpoint', mono: true, render: n => BridgeUI.esc(n.endpoint != null ? n.endpoint : '—') },
+          { label: 'Mesh IP', mono: true, render: n => BridgeUI.esc(n.mesh_ip != null ? n.mesh_ip : '–') },
+          { label: 'Endpoint', mono: true, render: n => BridgeUI.esc(n.endpoint != null ? n.endpoint : '–') },
         ],
         rows: nodes,
-        empty: 'No mesh peers — this node is running standalone',
+        empty: 'No mesh peers, this node is running standalone',
       });
       return BridgeUI.panel({ title: 'Peers', flush: true, body });
     },

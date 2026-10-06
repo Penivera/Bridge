@@ -1,4 +1,4 @@
-// Nodes — infrastructure inventory with per-node detail drawer and replication action.
+// Nodes: infrastructure inventory with per-node detail drawer and replication action.
 (function () {
   'use strict';
 
@@ -21,8 +21,8 @@
     return `
       <div class="event-row">
         <div class="event-time">${BridgeUI.fmt.time(e.timestamp)} · ${BridgeUI.fmt.ago(e.timestamp)}</div>
-        <div class="event-sev-col"><span class="severity-bar severity-bar--${sev}"></span>${BridgeUI.esc(e.event_type || '—')}</div>
-        <div class="event-node">${BridgeUI.esc(e.node_id || '—')}</div>
+        <div class="event-sev-col"><span class="severity-bar severity-bar--${sev}"></span>${BridgeUI.esc(e.event_type || '–')}</div>
+        <div class="event-node">${BridgeUI.esc(e.node_id || '–')}</div>
         <div class="event-message">${BridgeUI.esc(e.message || '')}</div>
       </div>`;
   }
@@ -98,23 +98,23 @@
     _tableHtml(state) {
       if (!Array.isArray(state.nodes)) {
         const body = state.errors && state.errors.nodes
-          ? BridgeUI.errorState('nodes unavailable — retrying', state.errors.nodes)
+          ? BridgeUI.errorState('nodes unavailable, retrying', state.errors.nodes)
           : BridgeUI.skeletons(1, 220);
         return BridgeUI.panel({ title: 'Nodes', flush: true, body });
       }
       const table = BridgeUI.table({
         columns: [
-          { label: 'Node', primary: true, render: n => `<span class="mono">${BridgeUI.esc(n.node_id != null ? n.node_id : '—')}</span>${n.is_leader ? ' ' + BridgeUI.badge('LEADER', 'leader') : ''}` },
+          { label: 'Node', primary: true, render: n => `<span class="mono">${BridgeUI.esc(n.node_id != null ? n.node_id : '–')}</span>${n.is_leader ? ' ' + BridgeUI.badge('LEADER', 'leader') : ''}` },
           { label: 'Status', render: n => `${BridgeUI.statusDot(n.health)} ${BridgeUI.healthBadge(n.health)}` },
-          { label: 'Role', render: n => BridgeUI.badge(n.role || '—', 'neutral') },
-          { label: 'Mesh IP', mono: true, render: n => BridgeUI.esc(n.mesh_ip != null ? n.mesh_ip : '—') },
-          { label: 'Endpoint', mono: true, render: n => BridgeUI.esc(n.endpoint != null ? n.endpoint : '—') },
+          { label: 'Role', render: n => BridgeUI.badge(n.role || '–', 'neutral') },
+          { label: 'Mesh IP', mono: true, render: n => BridgeUI.esc(n.mesh_ip != null ? n.mesh_ip : '–') },
+          { label: 'Endpoint', mono: true, render: n => BridgeUI.esc(n.endpoint != null ? n.endpoint : '–') },
           { label: 'Priority', num: true, render: n => BridgeUI.fmt.num(n.priority) },
           { label: 'Uptime', render: n => BridgeUI.fmt.uptime(n.uptime_secs) },
         ],
         rows: this._filtered(state.nodes),
         rowId: n => String(n.node_id != null ? n.node_id : ''),
-        empty: state.nodes.length === 0 ? 'No nodes — running standalone' : 'No nodes match the current filters',
+        empty: state.nodes.length === 0 ? 'No nodes, running standalone' : 'No nodes match the current filters',
       });
       return BridgeUI.panel({ title: 'Nodes', flush: true, body: table });
     },
@@ -134,12 +134,12 @@
         .slice(0, 10);
       body.innerHTML = `
         <div class="detail-grid">
-          ${detailItem('Node ID', BridgeUI.esc(n.node_id != null ? n.node_id : '—'), true)}
-          ${detailItem('Role', BridgeUI.badge(n.role || '—', 'neutral'))}
+          ${detailItem('Node ID', BridgeUI.esc(n.node_id != null ? n.node_id : '–'), true)}
+          ${detailItem('Role', BridgeUI.badge(n.role || '–', 'neutral'))}
           ${detailItem('Health', BridgeUI.healthBadge(n.health))}
           ${detailItem('Priority', BridgeUI.fmt.num(n.priority))}
-          ${detailItem('Mesh IP', BridgeUI.esc(n.mesh_ip != null ? n.mesh_ip : '—'), true)}
-          ${detailItem('Endpoint', BridgeUI.esc(n.endpoint != null ? n.endpoint : '—'), true)}
+          ${detailItem('Mesh IP', BridgeUI.esc(n.mesh_ip != null ? n.mesh_ip : '–'), true)}
+          ${detailItem('Endpoint', BridgeUI.esc(n.endpoint != null ? n.endpoint : '–'), true)}
           ${detailItem('Uptime', BridgeUI.fmt.uptime(n.uptime_secs))}
         </div>
         <div class="detail-section-title">WireGuard</div>

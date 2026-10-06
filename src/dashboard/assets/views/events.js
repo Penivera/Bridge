@@ -1,4 +1,4 @@
-// Events view — operational event stream.
+// Events view: operational event stream.
 // Server-paginated history (GET /api/v1/events, newest-first) merged with the
 // live WS buffer in state.events; severity filters client-side, event type
 // filters server-side. currentPage / currentSeverity / currentType are
@@ -56,7 +56,7 @@
       this._total += 1;
       const tbody = root.querySelector('#ev-tbody');
       if (!tbody) {
-        // Empty/error placeholder is showing — rebuild normally; the event is
+        // Empty/error placeholder is showing: rebuild normally; the event is
         // already in state.events (app.js unshifts before onEvent fires).
         this._renderList(state);
         return;
@@ -105,7 +105,7 @@
           this.currentSeverity = btn.dataset.sev;
           root.querySelectorAll('[data-sev]').forEach(b =>
             b.classList.toggle('active', b === btn));
-          this._renderList(state); // client-side filter — no refetch
+          this._renderList(state); // client-side filter: no refetch
         });
       });
       const typeSel = root.querySelector('#ev-type');
@@ -134,7 +134,7 @@
       if (res.error) {
         this._fetchError = res.error.error || 'Events request failed';
         if (!this._serverEvents || this._serverEvents.length === 0) {
-          // Nothing else to show — surface the error in place of the list.
+          // Nothing else to show: surface the error in place of the list.
           this._renderList(state);
         }
         this._updateMeta();
@@ -232,9 +232,9 @@
         <tr${isNew ? ' class="event-row--new"' : ''}>
           <td class="mono">${BridgeUI.esc(BridgeUI.fmt.time(e.timestamp))} <span class="muted">${BridgeUI.esc(BridgeUI.fmt.ago(e.timestamp))}</span></td>
           <td>${bar}${BridgeUI.badge(sev, variant)}</td>
-          <td class="mono">${BridgeUI.esc(e.event_type || '—')}</td>
-          <td class="mono">${BridgeUI.esc(e.node_id || '—')}</td>
-          <td class="cell-primary">${BridgeUI.esc(e.message || '—')}</td>
+          <td class="mono">${BridgeUI.esc(e.event_type || '–')}</td>
+          <td class="mono">${BridgeUI.esc(e.node_id || '–')}</td>
+          <td class="cell-primary">${BridgeUI.esc(e.message || '–')}</td>
         </tr>`;
     },
   };

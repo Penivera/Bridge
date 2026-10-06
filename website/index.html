@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>BRIDGE — One daemon. Every VPS. One resilient system.</title>
-  <meta name="description" content="BRIDGE is a single Rust daemon that turns a fleet of cheap VPS nodes across cloud providers into one resilient system: encrypted mesh, gossip membership, leader election, and automatic ingress handoff.">
+  <title>BRIDGE // Distributed. Self-aware. Fault-tolerant ingress for dynamic cloud infrastructure</title>
+  <meta name="description" content="BRIDGE is distributed, self-aware, fault-tolerant ingress for dynamic cloud infrastructure: a single Rust daemon that turns a fleet of VPS nodes across cloud providers into one resilient system with encrypted mesh, gossip membership, leader election, and automatic ingress handoff.">
   <link rel="icon" type="image/png" href="assets/favicon.png">
   <link rel="stylesheet" href="assets/style.css">
 </head>
@@ -37,11 +37,11 @@
 
   <main id="main">
     <section class="hero container">
-      <p class="hero-eyebrow">Distributed VPS fleet infrastructure</p>
-      <h1>Cheap VPS fleets, running as one resilient system.</h1>
+      <p class="hero-eyebrow">Systems architecture &amp; ingress</p>
+      <h1>Distributed. Self-aware. Fault-tolerant ingress for dynamic cloud infrastructure.</h1>
       <p class="hero-lead">
         BRIDGE is infrastructure software: a single Rust binary daemon that runs on each
-        VPS node and turns a scattered fleet — across cloud providers — into one encrypted,
+        VPS node and turns a scattered fleet, across cloud providers, into one encrypted,
         self-healing system with a single ingress point.
       </p>
       <div class="cmd-bar">
@@ -58,18 +58,26 @@
     <section class="section">
       <div class="container">
         <p class="section-kicker">Why BRIDGE exists</p>
-        <h2 class="section-title">Multi-provider VPS fleets are cheap. They are also fragile.</h2>
+        <h2 class="section-title">Running a cluster as one.</h2>
         <p class="section-lead">
-          A handful of small VPS nodes across providers costs a fraction of one large
-          instance — but out of the box you get a pile of single points of failure:
-          one node holds the ingress IP, every node is configured by hand, nothing
-          tracks peer health, and failover is you, awake, editing DNS at 3 a.m.
+          Distributed fleets fail in a specific way: every application can be running
+          while the system as a whole is down. One node holds the ingress entrypoint:
+          the public IP, the DNS record, the tunnel. When that node dies, or a workload
+          moves to another host, the entry boundary goes stale and every backend becomes
+          unreachable. The infrastructure changed; the configuration did not.
+        </p>
+        <p class="section-lead">
+          Manual reconfiguration cannot keep up with that rate of change. Rewiring DNS,
+          upstream targets, and tunnels by hand after every deploy and every failure
+          doesn't prevent downtime: it schedules it. The entrypoint is a single point
+          of failure, and the human in the loop is the latency.
         </p>
         <p class="section-lead">
           BRIDGE closes that gap. Nodes form an encrypted WireGuard mesh, track each
           other's health over gossip, elect a leader to hold the ingress entrypoint,
-          and reroute around failure automatically. The fleet behaves like one system
-          because, to BRIDGE, it is one system.
+          and reroute around failure automatically, moving the entrypoint itself when
+          the leader dies. The fleet behaves like one system because, to BRIDGE,
+          it is one system.
         </p>
       </div>
     </section>
@@ -87,7 +95,7 @@
           <div class="card">
             <span class="card-tag">Membership</span>
             <h3>SWIM gossip</h3>
-            <p>Nodes discover and health-track each other — Alive &rarr; Suspected &rarr; Dead &rarr; Recovered — converging in seconds.</p>
+            <p>Nodes discover and health-track each other (Alive &rarr; Suspected &rarr; Dead &rarr; Recovered), converging in seconds.</p>
           </div>
           <div class="card">
             <span class="card-tag">Consensus</span>
@@ -102,7 +110,7 @@
           <div class="card">
             <span class="card-tag">Failover</span>
             <h3>Ingress handoff tiers</h3>
-            <p>None, health-checked DNS failover, Cloudflare Tunnel held by the leader, or a Floating IP — pick per deployment.</p>
+            <p>None, health-checked DNS failover, Cloudflare Tunnel held by the leader, or a Floating IP: pick per deployment.</p>
           </div>
           <div class="card">
             <span class="card-tag">Routing</span>
@@ -180,7 +188,7 @@
           </div>
           <div class="step">
             <h3>Point DNS or the tunnel at the fleet</h3>
-            <p>The leader terminates ingress and routes to any node over the mesh. Failure triggers re-election and handoff — not downtime.</p>
+            <p>The leader terminates ingress and routes to any node over the mesh. Failure triggers re-election and handoff, not downtime.</p>
           </div>
         </div>
       </div>

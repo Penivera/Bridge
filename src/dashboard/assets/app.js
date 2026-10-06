@@ -1,12 +1,12 @@
-// BRIDGE Fleet Control — shell: state, routing, polling, topbar, BridgeUI kit.
+// BRIDGE Fleet Control shell: state, routing, polling, topbar, BridgeUI kit.
 //
 // View contract (each views/*.js file registers one):
 //   window.BridgeViews.<route> = {
 //     title: 'Human Name',
-//     render(container)            — called once per navigation; may be async
-//     update(state)                — called on every poll tick while active
-//     onEvent(event, state)        — optional, called for each WS event
-//     destroy()                    — optional, called when leaving the view
+//     render(container)            : called once per navigation; may be async
+//     update(state)                : called on every poll tick while active
+//     onEvent(event, state)        : optional, called for each WS event
+//     destroy()                    : optional, called when leaving the view
 //   }
 
 'use strict';
@@ -42,11 +42,11 @@ const BridgeUI = {
 
   fmt: {
     num(n) {
-      if (n === null || n === undefined || Number.isNaN(n)) return '—';
+      if (n === null || n === undefined || Number.isNaN(n)) return '–';
       return Number(n).toLocaleString('en-US');
     },
     uptime(secs) {
-      if (secs === null || secs === undefined) return '—';
+      if (secs === null || secs === undefined) return '–';
       secs = Math.max(0, Math.floor(secs));
       const d = Math.floor(secs / 86400), h = Math.floor((secs % 86400) / 3600),
             m = Math.floor((secs % 3600) / 60), s = secs % 60;
@@ -56,17 +56,17 @@ const BridgeUI = {
       return `${s}s`;
     },
     ms(v) {
-      if (v === null || v === undefined) return '—';
+      if (v === null || v === undefined) return '–';
       return v < 1 ? '<1ms' : `${Math.round(v)}ms`;
     },
     pct(v, digits = 2) {
-      if (v === null || v === undefined) return '—';
+      if (v === null || v === undefined) return '–';
       return `${(v * 100).toFixed(digits)}%`;
     },
     ago(isoTs) {
-      if (!isoTs) return '—';
+      if (!isoTs) return '–';
       const then = new Date(isoTs).getTime();
-      if (Number.isNaN(then)) return '—';
+      if (Number.isNaN(then)) return '–';
       const s = Math.max(0, Math.floor((Date.now() - then) / 1000));
       if (s < 5) return 'just now';
       if (s < 60) return `${s}s ago`;
@@ -75,9 +75,9 @@ const BridgeUI = {
       return `${Math.floor(s / 86400)}d ago`;
     },
     time(isoTs) {
-      if (!isoTs) return '—';
+      if (!isoTs) return '–';
       const d = new Date(isoTs);
-      if (Number.isNaN(d.getTime())) return '—';
+      if (Number.isNaN(d.getTime())) return '–';
       return d.toLocaleTimeString('en-GB', { hour12: false });
     },
   },
@@ -86,7 +86,7 @@ const BridgeUI = {
     return `
       <div class="metric">
         <div class="metric-label">${escapeHtml(label)}</div>
-        <div class="metric-value${tone ? ` metric-value--${tone}` : ''}${mono ? ' mono' : ''}">${escapeHtml(value ?? '—')}</div>
+        <div class="metric-value${tone ? ` metric-value--${tone}` : ''}${mono ? ' mono' : ''}">${escapeHtml(value ?? '–')}</div>
         ${sub ? `<div class="metric-sub">${escapeHtml(sub)}</div>` : ''}
       </div>`;
   },
@@ -117,7 +117,7 @@ const BridgeUI = {
         const raw = c.render ? c.render(row) : row[c.key];
         const cls = [c.primary ? 'cell-primary' : '', c.num ? 'cell-num' : '', c.mono ? 'mono' : '']
           .filter(Boolean).join(' ');
-        return `<td${cls ? ` class="${cls}"` : ''}>${raw ?? '—'}</td>`;
+        return `<td${cls ? ` class="${cls}"` : ''}>${raw ?? '–'}</td>`;
       }).join('');
       return `<tr${cls ? ` class="${cls}"` : ''}${idAttr}>${tds}</tr>`;
     }).join('');
@@ -313,12 +313,12 @@ function updateTopbar() {
   }
 
   const identity = document.getElementById('node-identity');
-  if (identity) identity.textContent = state.status?.node_id || '—';
+  if (identity) identity.textContent = state.status?.node_id || '–';
 
   const version = document.getElementById('version-display');
   if (version) version.textContent = `v${state.status?.version || '?.?.?'}`;
   const uptime = document.getElementById('uptime-display');
-  if (uptime) uptime.textContent = state.status ? BridgeUI.fmt.uptime(state.status.uptime_secs) : '—';
+  if (uptime) uptime.textContent = state.status ? BridgeUI.fmt.uptime(state.status.uptime_secs) : '–';
 
   const rt = document.getElementById('realtime-indicator');
   const rtText = document.getElementById('realtime-text');

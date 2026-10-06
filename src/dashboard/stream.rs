@@ -26,7 +26,7 @@ async fn handle_ws(socket: WebSocket, mut event_rx: broadcast::Receiver<String>)
     let (tx, rx) = mpsc::channel::<String>(CLIENT_QUEUE_CAPACITY);
 
     // Pump daemon events into the client's bounded queue. When the client is
-    // too slow, frames are dropped here — daemon throughput is never affected.
+    // too slow, frames are dropped here: daemon throughput is never affected.
     let forwarder = tokio::spawn(async move {
         loop {
             match event_rx.recv().await {
