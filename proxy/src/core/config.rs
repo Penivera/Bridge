@@ -324,6 +324,16 @@ pub struct ManagedConfig {
         deserialize_with = "deserialize_duration_or_secs"
     )]
     pub sync_interval: Duration,
+
+    /// Public dashboard domain. When the leader's registry carries this route,
+    /// it is exposed through Traefik to the local dashboard instead of being
+    /// skipped as a local route.
+    pub dashboard_domain: Option<String>,
+
+    /// Explicit server URL for the dashboard router. Required when Traefik
+    /// runs in a container (e.g. Coolify) and cannot reach the host loopback.
+    /// Example: "http://172.17.0.1:9090".
+    pub dashboard_upstream: Option<String>,
 }
 
 impl ManagedConfig {

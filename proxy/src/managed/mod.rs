@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -102,6 +103,8 @@ pub fn is_local_route(node_id: &str, local_node_id: &str) -> bool {
 
 /// Translates the DomainRegistry entries into a Traefik dynamic configuration struct.
 /// Routes targeting the local node are skipped so Coolify's local Docker discovery is untouched.
+/// The public dashboard domain is the one exception: when present in the registry (i.e. this
+/// node is the leader), it is exposed through Traefik to the local dashboard.
 pub fn generate_traefik_config(
     registry: &DomainRegistry,
     routing_pref: RoutingPreference,
@@ -116,7 +119,17 @@ pub fn generate_traefik_config(
     sorted_entries.sort_by_key(|(domain, _)| (*domain).clone());
 
     for (domain, route) in sorted_entries {
-        if is_local_route(&route.node.node_id, &config.local_node_id) {
+        // Internal mesh metadata records are not public routes.
+        if domain.ends_with(".node.internal") {
+            continue;
+        }
+
+        let is_dashboard_domain = config
+            .dashboard_domain
+            .as_deref()
+            .is_some_and(|d| d == domain.as_str());
+
+        if is_local_route(&route.node.node_id, &config.local_node_id) && !is_dashboard_domain {
             continue;
         }
 
@@ -128,13 +141,23 @@ pub fn generate_traefik_config(
             name = format!("{base_name}-{counter}");
         }
 
-        let target_addr = route.target_addr_with_fallback(routing_pref);
-        let scheme = if target_addr.port() == 443 {
-            "https"
+        let server_url = if is_dashboard_domain {
+            match config.dashboard_upstream.as_deref() {
+                Some(url) => url.to_string(),
+                None => {
+                    let port = route.upstream.map(|u| u.port()).unwrap_or(9090);
+                    format!("http://127.0.0.1:{port}")
+                }
+            }
         } else {
-            &config.default_target_scheme
+            let target_addr = route.target_addr_with_fallback(routing_pref);
+            let scheme = if target_addr.port() == 443 {
+                "https"
+            } else {
+                &config.default_target_scheme
+            };
+            format!("{scheme}://{target_addr}")
         };
-        let server_url = format!("{scheme}://{target_addr}");
 
         let tls = if config.tls_enabled {
             Some(TraefikTls {

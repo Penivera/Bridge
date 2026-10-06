@@ -1,0 +1,70 @@
+enable_telemetry = false
+
+[logger]
+level = "INFO"
+format = "text"
+target = "stderr"
+ansi = true
+
+[discovery]
+enabled = false
+
+[proxy]
+mode = "Direct"
+listeners = ["http"]
+http_addr = "127.0.0.1:18080"
+routing = "Mesh"
+redirect_http = false
+
+[dashboard]
+enabled = true
+listen_addr = "127.0.0.1:9090"
+public_domain = "dashboard.bridgemesh.space"
+
+[auth]
+enabled = true
+
+[[auth.users]]
+username = "admin"
+password_hash = "$argon2id$v=19$m=65536,t=3,p=4$/Mw9sKec3sw52cQ9ezflnw$ELTH8lIYx6+26WGPFwuXFMbxZwIS+eKeC+AssoykWAQ"
+
+[ipc]
+enabled = true
+socket_path = "/tmp/bridge-local.sock"
+
+[node]
+id = "peni-local"
+endpoint = "102.90.100.53:51821"
+listen_port = 51820
+mesh_ip = "10.8.0.3"
+priority = 0
+
+[[seeds]]
+id = "cafx-vm"
+endpoint = "192.145.47.100:51821"
+public_key = "seed-vm"
+mesh_ip = "10.8.0.1"
+
+[[seeds]]
+id = "cafx-indexer"
+endpoint = "152.53.84.214:51821"
+public_key = "seed-indexer"
+mesh_ip = "10.8.0.2"
+
+[[nodes]]
+id = "peni-local"
+endpoint = "127.0.0.1:80"
+mesh_endpoint = "10.8.0.3:80"
+routing = "Mesh"
+
+[[nodes]]
+id = "cafx-vm"
+endpoint = "127.0.0.1:80"
+mesh_endpoint = "10.8.0.1:80"
+routing = "Mesh"
+
+[[nodes]]
+id = "cafx-indexer"
+endpoint = "127.0.0.1:80"
+mesh_endpoint = "10.8.0.2:80"
+routing = "Mesh"
