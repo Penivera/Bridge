@@ -213,6 +213,10 @@ impl ClusterController {
             c.probe_period = Duration::from_millis(500);
             c.probe_rtt = Duration::from_millis(150);
             c.suspect_to_down_after = Duration::from_millis(1000);
+            // Purge "Down" members quickly so restarted nodes (which start
+            // with a fresh incarnation) can rejoin without waiting out
+            // long stale-state timeouts.
+            c.remove_down_after = Some(Duration::from_secs(2));
             c
         });
         let rng: StdRng = rand::make_rng();
@@ -400,6 +404,14 @@ impl ClusterController {
 
         if let Some(peer) = &removed {
             tracing::info!(node_id = %node_id, "unregistering peer node from cluster mesh");
+            {
+                // Quorum shrinks with the confirmed-dead member removed.
+                let mut state = self.election_state.write().await;
+                let remaining = self.peers.read().await.len() + 1;
+                if state.total_known_nodes > remaining {
+                    state.total_known_nodes = remaining;
+                }
+            }
             let mut wg = self.wireguard.write().await;
             wg.remove_peer(&peer.public_key);
             if let Err(err) = wg.sync_to_kernel() {
@@ -1135,11 +1147,24 @@ impl ClusterController {
                     let _ = self.gossip_routes(3).await;
                 }
                 _ = rejoin_ticker.tick() => {
-                    let peers_empty = self.peers.read().await.is_empty();
-                    if peers_empty {
+                    let peers = self.peers.read().await;
+                    if peers.is_empty() {
+                        drop(peers);
                         // No peers yet (e.g. simultaneous fleet boot): retry seeds
                         // so nodes that missed each other's first JoinRequest converge.
                         let _ = self.send_join_requests().await;
+                    } else {
+                        // Refresh SWIM membership for all known peers: if foca
+                        // purged one (e.g. stale Down state), this re-adds and
+                        // resumes probing it.
+                        let mut runtime = AccumulatingRuntime::new();
+                        {
+                            let mut foca_lock = self.foca.lock().await;
+                            for peer in peers.values() {
+                                let _ = foca_lock.announce(peer.clone(), &mut runtime);
+                            }
+                        }
+                        self.dispatch_runtime(runtime).await;
                     }
                 }
                 _ = leader_check_ticker.tick() => {

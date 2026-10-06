@@ -8,7 +8,7 @@ pub const MAGIC_BYTES: &[u8; 4] = b"BRDG";
 pub const PROTOCOL_VERSION: u8 = 1;
 
 /// Represents a peer node participating in the WireGuard mesh and cluster protocol.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct PeerNode {
     /// Logical node identifier (e.g., "vm-01").
     pub node_id: String,
@@ -24,6 +24,10 @@ pub struct PeerNode {
     /// Kept separate from the cluster endpoint so the kernel WireGuard socket
     /// and the userspace gossip socket never contend for the same port.
     pub listen_port: u16,
+    /// SWIM incarnation number. Bumped whenever this node renews itself after
+    /// being declared down, so stale "Down" gossip from previous incarnations
+    /// can never permanently poison a live node.
+    pub incarnation: u64,
 }
 
 impl PeerNode {
@@ -40,6 +44,7 @@ impl PeerNode {
             listen_port: endpoint.port(),
             endpoint,
             priority: 0,
+            incarnation: 0,
         }
     }
 
@@ -74,8 +79,11 @@ impl registry::RingNode for PeerNode {
 impl foca::Identity for PeerNode {
     type Addr = SocketAddr;
 
+    /// Bump the SWIM incarnation so this node can shed a stale "Down" state.
     fn renew(&self) -> Option<Self> {
-        None
+        let mut renewed = self.clone();
+        renewed.incarnation = renewed.incarnation.wrapping_add(1);
+        Some(renewed)
     }
 
     fn addr(&self) -> Self::Addr {
