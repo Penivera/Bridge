@@ -369,6 +369,9 @@ impl ClusterController {
                 vec![format!("{}/32", peer.mesh_ip)],
             );
             wg.add_peer(wg_peer);
+            if let Err(err) = wg.sync_to_kernel() {
+                tracing::warn!(%err, "failed to sync WireGuard peers to kernel");
+            }
         }
 
         // 3. DomainRegistry
@@ -399,6 +402,9 @@ impl ClusterController {
             tracing::info!(node_id = %node_id, "unregistering peer node from cluster mesh");
             let mut wg = self.wireguard.write().await;
             wg.remove_peer(&peer.public_key);
+            if let Err(err) = wg.sync_to_kernel() {
+                tracing::warn!(%err, "failed to sync WireGuard peers to kernel");
+            }
             self.registry.remove(&format!("{}.node.internal", node_id));
         }
 

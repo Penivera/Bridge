@@ -136,12 +136,16 @@ impl WireGuardDevice {
         self.peers.len()
     }
 
-    /// Synchronizes the in-memory WireGuard device configuration with the host kernel interface via `defguard_wireguard_rs`.
+    /// Synchronizes the in-memory WireGuard device configuration (address,
+    /// port, and all peers) with the host kernel interface via `defguard_wireguard_rs`.
     ///
     /// If running in an unprivileged environment (e.g. non-root unit test), logs a warning and returns `Ok(())`.
     pub fn sync_to_kernel(&self) -> Result<(), String> {
         #[cfg(target_os = "linux")]
         {
+            use defguard_wireguard_rs::key::Key;
+            use defguard_wireguard_rs::net::IpAddrMask;
+            use defguard_wireguard_rs::peer::Peer;
             use defguard_wireguard_rs::{InterfaceConfiguration, WGApi, WireguardInterfaceApi};
             let wgapi: WGApi = match WGApi::new(self.interface_name.clone()) {
                 Ok(api) => api,
@@ -151,6 +155,31 @@ impl WireGuardDevice {
                 }
             };
 
+            let mut kernel_peers = Vec::with_capacity(self.peers.len());
+            for peer in self.peers.values() {
+                let key: Key = peer
+                    .public_key
+                    .as_str()
+                    .try_into()
+                    .map_err(|_| format!("invalid WireGuard peer public key: {}", peer.public_key))?;
+                let mut kernel_peer = Peer::new(key);
+                if let Some(endpoint) = &peer.endpoint {
+                    kernel_peer
+                        .set_endpoint(&endpoint.to_string())
+                        .map_err(|e| format!("invalid WireGuard peer endpoint: {e}"))?;
+                }
+                let allowed_ips: Result<Vec<IpAddrMask>, _> = peer
+                    .allowed_ips
+                    .iter()
+                    .map(|ip| ip.parse::<IpAddrMask>())
+                    .collect();
+                kernel_peer.set_allowed_ips(
+                    allowed_ips.map_err(|e| format!("invalid WireGuard allowed IP: {e}"))?,
+                );
+                kernel_peer.persistent_keepalive_interval = Some(peer.persistent_keepalive);
+                kernel_peers.push(kernel_peer);
+            }
+
             let addr_str = format!("{}/32", self.mesh_ip);
             let addr = addr_str.parse().map_err(|e| format!("invalid mesh IP: {e}"))?;
 
@@ -159,7 +188,7 @@ impl WireGuardDevice {
                 prvkey: self.private_key.clone(),
                 addresses: vec![addr],
                 port: self.listen_port,
-                peers: Vec::new(),
+                peers: kernel_peers,
                 mtu: None,
                 fwmark: None,
             };
