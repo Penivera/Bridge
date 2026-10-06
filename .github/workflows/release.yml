@@ -23,11 +23,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build release binary
-        uses: cross-rs/cross@v0.2.5
+      - name: Install cross
+        uses: taiki-e/install-action@v2
         with:
-          command: build
-          args: --release --target ${{ matrix.target }}
+          tool: cross
+
+      - name: Build release binary
+        run: cross build --release --target ${{ matrix.target }}
 
       - name: Package binary
         run: |
