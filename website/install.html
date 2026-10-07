@@ -29,7 +29,7 @@
             </ul>
           </li>
           <li class="nav-item"><a href="install.html">Install</a></li>
-          <li class="nav-item"><a href="https://github.com/bridgemesh/bridge">GitHub</a></li>
+          <li class="nav-item"><a href="https://github.com/Penivera/Bridge">GitHub</a></li>
         </ul>
       </nav>
     </div>
@@ -48,11 +48,14 @@
         <code id="install-cmd">curl -fsSL https://bridgemesh.space/install.sh | sh</code>
         <button class="copy-btn" type="button" data-copy-target="#install-cmd">Copy</button>
       </div>
+      <p class="muted" style="margin-top: 0.5rem; margin-bottom: 1rem;">
+        Direct GitHub raw fallback: <code>curl -fsSL https://raw.githubusercontent.com/Penivera/Bridge/main/scripts/install.sh | sh</code>
+      </p>
       <p class="muted">
         Run this on every node you want in the fleet. The installer re-executes itself
         through <code>sudo</code> when it needs root for system paths. As with any
         piped installer, review the script first: it is plain POSIX shell, published
-        in the <a href="https://github.com/bridgemesh/bridge">GitHub repository</a>.
+        in the <a href="https://github.com/Penivera/Bridge">GitHub repository</a>.
       </p>
 
       <h2 id="what-it-does">What the installer does</h2>
@@ -82,7 +85,7 @@
             <tr><th>Variable</th><th>Default</th><th>Purpose</th></tr>
           </thead>
           <tbody>
-            <tr><td><code>BRIDGE_REPO</code></td><td><code>bridgemesh/bridge</code></td><td>GitHub repository to download releases from.</td></tr>
+            <tr><td><code>BRIDGE_REPO</code></td><td><code>Penivera/Bridge</code></td><td>GitHub repository to download releases from.</td></tr>
             <tr><td><code>BRIDGE_VERSION</code></td><td><code>latest</code></td><td>Release tag to install; <code>latest</code> queries the GitHub API.</td></tr>
             <tr><td><code>INSTALL_DIR</code></td><td><code>/usr/local/bin</code></td><td>Directory the <code>bridge</code> binary is installed into.</td></tr>
           </tbody>
@@ -94,14 +97,14 @@
       <div class="codeblock">
         <button class="copy-btn" type="button" data-copy-target="#manual-steps">Copy</button>
 <pre id="manual-steps"><code><span class="c"># 1. Download the tarball and checksums for your platform</span>
-curl -fsSLO https://github.com/bridgemesh/bridge/releases/download/&lt;version&gt;/bridge-&lt;version&gt;-x86_64-unknown-linux-gnu.tar.gz
-curl -fsSLO https://github.com/bridgemesh/bridge/releases/download/&lt;version&gt;/sha256sums.txt
+curl -fsSLO https://github.com/Penivera/Bridge/releases/download/&lt;version&gt;/bridge-&lt;version&gt;-x86_64-unknown-linux-musl.tar.gz
+curl -fsSLO https://github.com/Penivera/Bridge/releases/download/&lt;version&gt;/sha256sums.txt
 
 <span class="c"># 2. Verify the checksum (use: shasum -a 256 -c on macOS)</span>
-grep x86_64-unknown-linux-gnu.tar.gz sha256sums.txt | sha256sum -c -
+grep x86_64-unknown-linux-musl.tar.gz sha256sums.txt | sha256sum -c -
 
 <span class="c"># 3. Extract and install the binary</span>
-tar -xzf bridge-&lt;version&gt;-x86_64-unknown-linux-gnu.tar.gz
+tar -xzf bridge-&lt;version&gt;-x86_64-unknown-linux-musl.tar.gz
 sudo cp bridge /usr/local/bin/bridge
 sudo chmod 0755 /usr/local/bin/bridge</code></pre>
       </div>
@@ -166,7 +169,7 @@ format = "text"</code></pre>
         <h4>Project</h4>
         <ul>
           <li><a href="install.html">Install</a></li>
-          <li><a href="https://github.com/bridgemesh/bridge">GitHub</a></li>
+          <li><a href="https://github.com/Penivera/Bridge">GitHub</a></li>
         </ul>
       </nav>
     </div>
