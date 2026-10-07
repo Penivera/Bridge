@@ -3,6 +3,7 @@ pub mod auth;
 pub mod cli;
 pub mod core;
 pub mod daemon;
+#[cfg(feature = "dashboard")]
 pub mod dashboard;
 pub mod discovery;
 pub mod failover;

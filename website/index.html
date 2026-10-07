@@ -58,35 +58,42 @@
 
     <section class="section">
       <div class="container">
-        <p class="section-kicker">Why BRIDGE exists</p>
-        <h2 class="section-title">The infrastructure changes. How does the network know?</h2>
-        <p class="section-lead">
-          When you have several servers running different services, routing traffic to them
-          is pure friction. Every deployment meant updating a stack of configurations across
-          the board: SSH into the host, edit reverse proxy configs, validate syntax, reload,
-          and hope nothing breaks in transit. Static gateway mappings become stale the moment
-          dynamic containers move.
-        </p>
-        <p class="section-lead">
-          Worse, healthy infrastructure can still be unreachable. If an ingress bastion crashes,
-          your application backends are running fine, but the outside world is cut off.
-          Human-in-the-loop latency guarantees network downtime during unplanned failures—manual
-          reconfiguration simply cannot keep up with dynamic cloud workloads.
-        </p>
-        <p class="section-lead">
-          BRIDGE eliminates that friction by making infrastructure aware of itself. A lightweight
-          daemon on each VM watches services spin up and down, forms an encrypted WireGuard mesh,
-          gossips health state, and autonomously elects an edge leader. If a leader or backend dies,
-          traffic reroutes and the ingress hands off in milliseconds without human intervention.
-          It makes a fleet of VMs work like one—bridging the brain, so to speak.
-        </p>
+        <div class="section-head">
+          <p class="section-kicker">Why BRIDGE exists</p>
+          <h2 class="section-title">The infrastructure changes. How does the network know?</h2>
+        </div>
+        <div class="why-narrative">
+          <p>
+            When you have several servers running different services, routing traffic to them
+            is pure friction. Every deployment meant updating a stack of configurations across
+            the board: SSH into the host, edit reverse proxy configs, validate syntax, reload,
+            and hope nothing breaks in transit. Static gateway mappings become stale the moment
+            dynamic containers move.
+          </p>
+          <p>
+            Worse, healthy infrastructure can still be unreachable. If an ingress bastion crashes,
+            your application backends are running fine, but the outside world is cut off.
+            Human-in-the-loop latency guarantees network downtime during unplanned failures: manual
+            reconfiguration simply cannot keep up with dynamic cloud workloads.
+          </p>
+          <p>
+            BRIDGE eliminates that friction by making infrastructure aware of itself. A lightweight
+            daemon on each VM watches services spin up and down, forms an encrypted WireGuard mesh,
+            gossips health state, and autonomously elects an edge leader. If a leader or backend dies,
+            traffic reroutes and the ingress hands off in milliseconds without human intervention.
+            It makes a fleet of VMs work like one, bridging the brain so to speak.
+          </p>
+        </div>
       </div>
     </section>
 
     <section class="section">
       <div class="container">
-        <p class="section-kicker">What it does</p>
-        <h2 class="section-title">Everything your fleet needs, in one lightweight binary</h2>
+        <div class="section-head">
+          <p class="section-kicker">What it does</p>
+          <h2 class="section-title">Everything your fleet needs, in one lightweight binary</h2>
+          <p class="section-lead">Autonomous ingress, encrypted overlay, and continuous health monitoring with zero external runtime dependencies.</p>
+        </div>
         <div class="grid">
           <div class="card">
             <span class="card-tag">Routing</span>
@@ -134,8 +141,11 @@
 
     <section class="section">
       <div class="container">
-        <p class="section-kicker">Architecture &mdash; One mind. Different bodies. Same goal.</p>
-        <h2 class="section-title">A daemon on every node, a leader at the edge</h2>
+        <div class="section-head">
+          <p class="section-kicker">Architecture // One mind. Different bodies. Same goal.</p>
+          <h2 class="section-title">A daemon on every node, a leader at the edge</h2>
+          <p class="section-lead">A unified control plane running across distinct physical hosts, coordinating public traffic ingress and private workload dispatch.</p>
+        </div>
         <div class="diagram" role="img" aria-label="Diagram: clients reach the fleet through DNS or a Cloudflare Tunnel held by the leader node; all nodes are connected by an encrypted WireGuard mesh.">
           <div class="d-row">
             <div class="d-box">
@@ -146,7 +156,7 @@
           <div class="d-vline" aria-hidden="true"></div>
           <div class="d-vline-label">DNS failover / Cloudflare Tunnel</div>
           <div class="d-fleet">
-            <span class="d-fleet-label">BRIDGE mesh &mdash; WireGuard overlay, 10.8.0.0/24</span>
+            <span class="d-fleet-label">BRIDGE mesh // WireGuard overlay, 10.8.0.0/24</span>
             <div class="d-row">
               <div class="d-box leader">
                 <span class="d-title">node-01</span>
@@ -169,27 +179,320 @@
         <p class="diagram-caption">
           Every VM runs the same lightweight BRIDGE daemon. Continuous SWIM gossip keeps node state
           synchronized, while leader election assigns the public ingress. If the active leader dies,
-          another takes over instantly—continuous state, automatic decisions.
+          another takes over instantly: continuous state, automatic decisions.
         </p>
       </div>
     </section>
 
-    <section class="section">
+    <section class="section" id="how-it-works">
       <div class="container">
-        <p class="section-kicker">How it works</p>
-        <h2 class="section-title">Three steps to a self-aware fleet</h2>
-        <div class="steps">
-          <div class="step">
-            <h3>Install the daemon on each VM</h3>
-            <p>One lightweight command per VM installs the binary, sets up a system user, and configures the systemd service.</p>
+        <div class="section-head">
+          <p class="section-kicker">Under the hood // Deep-dive architecture</p>
+          <h2 class="section-title">How BRIDGE works: From edge ingress to kernel WireGuard mesh</h2>
+          <p class="section-lead">
+            Cloudflare-grade routing without cloud lock-in. BRIDGE decouples public edge connectivity
+            from private workload routing across multi-cloud or on-prem VMs using a high-throughput
+            data plane and a zero-dependency epidemic control plane.
+          </p>
+        </div>
+
+        <!-- Technical Guarantees Bar (Cloudflare style) -->
+        <div class="tech-specs-bar">
+          <div class="tech-spec-item">
+            <span class="tech-spec-val">&lt; 10ms</span>
+            <span class="tech-spec-label">Edge failover reaction &amp; ingress reassignment</span>
           </div>
-          <div class="step">
-            <h3>Nodes form the mesh and elect a leader</h3>
-            <p>WireGuard links connect, gossip discovers peers in seconds, and the highest-priority alive node takes the ingress.</p>
+          <div class="tech-spec-item">
+            <span class="tech-spec-val">RFC 7748</span>
+            <span class="tech-spec-label">Curve25519 &amp; ChaCha20-Poly1305 encryption</span>
           </div>
-          <div class="step">
-            <h3>Route seamlessly across the fleet</h3>
-            <p>One entry point for multiple servers. As services spin up and down, BRIDGE updates the routing table automatically.</p>
+          <div class="tech-spec-item">
+            <span class="tech-spec-val">10.8.0.0/24</span>
+            <span class="tech-spec-label">Kernel-level WireGuard L3 overlay network</span>
+          </div>
+          <div class="tech-spec-item">
+            <span class="tech-spec-val">SWIM</span>
+            <span class="tech-spec-label">Epidemic failure detector with indirect probing</span>
+          </div>
+          <div class="tech-spec-item">
+            <span class="tech-spec-val">Zero</span>
+            <span class="tech-spec-label">Centralized brokers, databases, or cloud dependencies</span>
+          </div>
+        </div>
+
+        <!-- Dynamic Subsystem Explorer (Interactive Tabs) -->
+        <div class="tech-explorer">
+          <div class="tech-tabs-header" role="tablist" aria-label="Architecture Subsystems">
+            <button class="tech-tab-btn active" role="tab" aria-selected="true" data-tab-target="#panel-mesh" id="tab-mesh">
+              <span class="tab-num">01</span> L3 WireGuard Mesh
+            </button>
+            <button class="tech-tab-btn" role="tab" aria-selected="false" data-tab-target="#panel-swim" id="tab-swim">
+              <span class="tab-num">02</span> SWIM Failure Detector
+            </button>
+            <button class="tech-tab-btn" role="tab" aria-selected="false" data-tab-target="#panel-consensus" id="tab-consensus">
+              <span class="tab-num">03</span> Bully Consensus
+            </button>
+            <button class="tech-tab-btn" role="tab" aria-selected="false" data-tab-target="#panel-proxy" id="tab-proxy">
+              <span class="tab-num">04</span> L7 Proxy &amp; Hash Ring
+            </button>
+            <button class="tech-tab-btn" role="tab" aria-selected="false" data-tab-target="#panel-replication" id="tab-replication">
+              <span class="tab-num">05</span> Docker &amp; Workload Failover
+            </button>
+          </div>
+
+          <div class="tech-panels">
+            <!-- Panel 01: Mesh -->
+            <div class="tech-panel active" id="panel-mesh" role="tabpanel" aria-labelledby="tab-mesh" aria-hidden="false">
+              <div class="tech-panel-info">
+                <div class="tech-badge-row">
+                  <span class="tech-badge badge-data">Data Plane</span>
+                  <span class="tech-badge badge-sec">RFC 7748</span>
+                  <span class="tech-badge badge-data">Kernel wg0</span>
+                </div>
+                <h3>Kernel-level WireGuard overlay &amp; deterministic mesh IP allocation</h3>
+                <p class="muted">
+                  Rather than proxying inter-node traffic through userland sidecars or centralized bastion gateways,
+                  BRIDGE creates a native WireGuard network interface (<code>wg0</code>) in the Linux kernel on each node.
+                </p>
+                <ul class="tech-features-list">
+                  <li><strong>Deterministic Subnetting:</strong> Nodes bind to predictable virtual IP addresses on the private <code>10.8.0.0/24</code> CIDR range (e.g. <code>10.8.0.1</code>, <code>10.8.0.2</code>).</li>
+                  <li><strong>Self-Sovereign Cryptography:</strong> High-performance Curve25519 keypairs are generated locally on boot or read from config. No external PKI or certificate authority needed.</li>
+                  <li><strong>Point-to-Point UDP Encapsulation:</strong> Packets traverse port 51820 directly between node public IPs, authenticated and encrypted via ChaCha20-Poly1305.</li>
+                  <li><strong>Dynamic AllowedIPs Programming:</strong> When a peer joins, BRIDGE configures <code>AllowedIPs = [&lt;peer_ip&gt;/32]</code> inside the kernel routing table, preventing route spoofing.</li>
+                </ul>
+              </div>
+              <div class="tech-panel-code">
+                <div class="tech-code-bar">
+                  <span>bridge mesh status</span>
+                  <button class="copy-btn" type="button" data-copy-target="#code-mesh">Copy</button>
+                </div>
+<pre id="code-mesh"><code><span class="c"># Telemetry from running daemon:</span>
+Interface:    wg0
+Mesh IP:      10.8.0.1/24
+Listen Port:  51820 (UDP)
+Public Key:   8fKx92...mQ2yL8=
+Peers (2 active):
+  node-02:
+    Endpoint:    198.51.100.22:51820
+    AllowedIPs:  10.8.0.2/32
+    Handshake:   18s ago (transfer: 4.2 MB rx / 8.9 MB tx)
+  node-03:
+    Endpoint:    198.51.100.23:51820
+    AllowedIPs:  10.8.0.3/32
+    Handshake:   9s ago (transfer: 1.1 MB rx / 1.4 MB tx)</code></pre>
+              </div>
+            </div>
+
+            <!-- Panel 02: SWIM -->
+            <div class="tech-panel" id="panel-swim" role="tabpanel" aria-labelledby="tab-swim" aria-hidden="true">
+              <div class="tech-panel-info">
+                <div class="tech-badge-row">
+                  <span class="tech-badge badge-control">Control Plane</span>
+                  <span class="tech-badge badge-control">SWIM Protocol</span>
+                  <span class="tech-badge badge-sec">O(log N)</span>
+                </div>
+                <h3>SWIM epidemic gossip with indirect probing &amp; flap dampening</h3>
+                <p class="muted">
+                  Fleet liveness is evaluated continuously without central polling or broadcast storms. Nodes use an
+                  adapted SWIM failure detector with indirect probing and suspicion timers.
+                </p>
+                <ul class="tech-features-list">
+                  <li><strong>Direct &amp; Indirect Probing:</strong> Every period, a node sends a direct UDP ping to a random member. If unanswered within timeout, it dispatches <code>PING-REQ</code> to $k$ random intermediaries to probe the target from alternative network paths.</li>
+                  <li><strong>Four-State Lifecycle:</strong> Nodes move through a deterministic state machine: <code>Alive</code> &rarr; <code>Suspected</code> &rarr; <code>Dead</code> &rarr; <code>Recovered</code>.</li>
+                  <li><strong>Epidemic Dissemination:</strong> Membership and route state are piggybacked on regular heartbeats, converging across the entire fleet in $O(\log N)$ time.</li>
+                  <li><strong>Flap Dampening:</strong> Suspicion timers ensure transient packet loss, route blips, or container GC pauses do not trigger false evictions.</li>
+                </ul>
+              </div>
+              <div class="tech-panel-code">
+                <div class="tech-code-bar">
+                  <span>bridge nodes &amp; inspect</span>
+                  <button class="copy-btn" type="button" data-copy-target="#code-swim">Copy</button>
+                </div>
+<pre id="code-swim"><code><span class="c"># Fleet membership state:</span>
+NODE ID   ROLE      STATE     MESH IP    PRIORITY  LAST HEARTBEAT
+node-01   Leader    Alive     10.8.0.1   100       local
+node-02   Follower  Alive     10.8.0.2   90        142ms ago
+node-03   Follower  Alive     10.8.0.3   80        210ms ago
+
+<span class="c"># Gossip failure detector transition:</span>
+[SWIM] Target node-03 direct ping timeout (800ms)
+[SWIM] Requesting indirect probe via node-02 (k=2)
+[SWIM] Indirect probe confirmed healthy: ACK received in 42ms</code></pre>
+              </div>
+            </div>
+
+            <!-- Panel 03: Consensus -->
+            <div class="tech-panel" id="panel-consensus" role="tabpanel" aria-labelledby="tab-consensus" aria-hidden="true">
+              <div class="tech-panel-info">
+                <div class="tech-badge-row">
+                  <span class="tech-badge badge-control">Control Plane</span>
+                  <span class="tech-badge badge-control">Bully Algorithm</span>
+                  <span class="tech-badge badge-data">Ingress Handoff</span>
+                </div>
+                <h3>Priority-weighted Bully consensus with sub-second ingress handover</h3>
+                <p class="muted">
+                  Public traffic enters the fleet through exactly one active ingress leader. Leadership is determined
+                  by an autonomous bully algorithm weighted by node priority scores.
+                </p>
+                <ul class="tech-features-list">
+                  <li><strong>Deterministic Leadership:</strong> Configured priorities (e.g. <code>node-01: 100</code>, <code>node-02: 90</code>) establish ingress seniority. The highest-priority live node claims the leader role.</li>
+                  <li><strong>Term-Based Quorum:</strong> Monotonically increasing election terms prevent split-brain scenarios and guarantee that partitioned nodes cannot hijack ingress.</li>
+                  <li><strong>Ingress Tier Handoff:</strong> When leadership shifts, the new leader immediately asserts the configured entrypoint: Cloudflare Tunnel activation, Floating IP reallocation via cloud API, or DNS failover updates.</li>
+                  <li><strong>Hitless Step-Down:</strong> Operators can trigger leadership handoff gracefully prior to host maintenance via <code>bridge election trigger</code>.</li>
+                </ul>
+              </div>
+              <div class="tech-panel-code">
+                <div class="tech-code-bar">
+                  <span>bridge election status</span>
+                  <button class="copy-btn" type="button" data-copy-target="#code-consensus">Copy</button>
+                </div>
+<pre id="code-consensus"><code><span class="c"># Consensus state machine:</span>
+Current Term:      4
+Leader ID:         node-01
+Local Node:        node-01 (is_leader = true)
+Priority:          100
+Active Handoff:    Cloudflare Tunnel (tier 1)
+Quorum Consensus:  3/3 nodes in agreement
+
+Peer Priority Matrix:
+  node-01: 100 (Active Leader)
+  node-02: 90  (Standby Ingress)
+  node-03: 80  (Worker Only)</code></pre>
+              </div>
+            </div>
+
+            <!-- Panel 04: Proxy -->
+            <div class="tech-panel" id="panel-proxy" role="tabpanel" aria-labelledby="tab-proxy" aria-hidden="true">
+              <div class="tech-panel-info">
+                <div class="tech-badge-row">
+                  <span class="tech-badge badge-data">Data Plane</span>
+                  <span class="tech-badge badge-data">L7 Direct HTTP</span>
+                  <span class="tech-badge badge-sec">MurmurHash3 Ring</span>
+                </div>
+                <h3>High-throughput L7 direct proxy with consistent hashing &amp; circuit breaking</h3>
+                <p class="muted">
+                  Built on asynchronous Rust (Tokio &amp; Hyper), the BRIDGE proxy terminates incoming connections
+                  and routes traffic with microsecond overhead.
+                </p>
+                <ul class="tech-features-list">
+                  <li><strong>Radix Tree Routing:</strong> Incoming HTTP Host headers and TLS SNI extensions are matched against in-memory prefix trees in $O(1)$ operations.</li>
+                  <li><strong>Consistent Hash Ring:</strong> Backend instances are mapped on a MurmurHash3 consistent hash ring. Client requests maintain session affinity across rolling container updates.</li>
+                  <li><strong>Zero Middlebox Hops:</strong> If the destination container lives on a remote node, the proxy dispatches packets over the WireGuard mesh straight to the remote node's internal loopback port.</li>
+                  <li><strong>Automatic Circuit Breaking:</strong> Consecutive backend connection timeouts trigger an immediate circuit trip, redirecting subsequent traffic to healthy peers without client-facing errors.</li>
+                </ul>
+              </div>
+              <div class="tech-panel-code">
+                <div class="tech-code-bar">
+                  <span>bridge inspect api.example.com</span>
+                  <button class="copy-btn" type="button" data-copy-target="#code-proxy">Copy</button>
+                </div>
+<pre id="code-proxy"><code><span class="c"># Upstream resolution query:</span>
+Hostname:      api.example.com
+Route Source:  Docker Discovery (container: web-backend)
+Mode:          L7 Direct HTTP
+Primary Ring:  node-02 (10.8.0.2:8000) [Health: OK, 0.4ms]
+Backup Ring:   node-03 (10.8.0.3:8000) [Health: OK, 0.6ms]
+TLS Strategy:  Terminate &amp; Forward (Auto-LetsEncrypt / CF-Cert)
+Active Conns:  412 streams / 0 errors</code></pre>
+              </div>
+            </div>
+
+            <!-- Panel 05: Replication -->
+            <div class="tech-panel" id="panel-replication" role="tabpanel" aria-labelledby="tab-replication" aria-hidden="true">
+              <div class="tech-badge-row">
+                <span class="tech-badge badge-orch">Orchestration</span>
+                <span class="tech-badge badge-orch">Docker Socket</span>
+                <span class="tech-badge badge-control">Coolify Native</span>
+              </div>
+              <h3>Docker discovery &amp; autonomous cross-VM workload replication</h3>
+              <p class="muted">
+                BRIDGE turns standalone Docker daemons into an orchestrated fleet without requiring
+                Kubernetes complexity or etcd clusters.
+              </p>
+              <ul class="tech-features-list">
+                <li><strong>Dynamic Socket Watching:</strong> Watches <code>/var/run/docker.sock</code> for container start/die events. Containers with <code>bridge.enable=true</code> labels are automatically broadcast into the fleet routing table.</li>
+                <li><strong>Native Coolify Delegation:</strong> Integrates directly with Coolify multi-server environments. Services deployed anywhere in your fleet become reachable through the unified ingress.</li>
+                <li><strong>Automated Failover Duplication:</strong> Critical workloads can declare standby replicas on peer VMs. If node-02 dies, node-03 starts the container standby automatically and updates the routing table.</li>
+                <li><strong>Non-Preemptive Failback:</strong> When the recovered host returns online, workloads remain on the running replica until intentionally rescheduled, preventing split-brain flap loops.</li>
+              </ul>
+              <div class="tech-panel-code">
+                <div class="tech-code-bar">
+                  <span>docker-compose.yml &amp; bridge replicas</span>
+                  <button class="copy-btn" type="button" data-copy-target="#code-repl">Copy</button>
+                </div>
+<pre id="code-repl"><code><span class="c"># Example service labels:</span>
+services:
+  app:
+    image: myorg/api:v2.1
+    labels:
+      - "bridge.enable=true"
+      - "bridge.domain=api.example.com"
+      - "bridge.replicate=true"
+      - "bridge.standby=node-03"
+
+<span class="c"># CLI replica telemetry:</span>
+SERVICE   ORIGIN   PLACEMENT  STATUS   FAILBACK POLICY
+app       node-02  node-03    Standby  Manual (Cooldown: 60s)</code></pre>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- The Packet Journey Pipeline (Cloudflare Product Visualizer) -->
+        <div class="journey-wrap">
+          <div class="journey-header">
+            <p class="section-kicker">Packet pipeline</p>
+            <h3>The life of a request across the BRIDGE fleet</h3>
+            <p>From public ingress termination to WireGuard kernel encapsulation to container response.</p>
+          </div>
+          <div class="journey-steps">
+            <div class="journey-step">
+              <span class="journey-step-num">STAGE 01</span>
+              <h4>Public Ingress</h4>
+              <p>Client request hits the leader node via Cloudflare Tunnel, DNS failover, or floating Anycast IP.</p>
+            </div>
+            <div class="journey-step">
+              <span class="journey-step-num">STAGE 02</span>
+              <h4>Radix Route Match</h4>
+              <p>Leader proxy inspects Host/SNI, looks up destination in memory, and selects target via consistent hash ring.</p>
+            </div>
+            <div class="journey-step">
+              <span class="journey-step-num">STAGE 03</span>
+              <h4>Kernel Encapsulation</h4>
+              <p>Packet is routed into <code>wg0</code> and encapsulated into ChaCha20-Poly1305 UDP frames across 10.8.0.x.</p>
+            </div>
+            <div class="journey-step">
+              <span class="journey-step-num">STAGE 04</span>
+              <h4>Zero-Copy Forward</h4>
+              <p>Destination VM kernel decapsulates WireGuard frame and passes packet directly to local container socket.</p>
+            </div>
+            <div class="journey-step">
+              <span class="journey-step-num">STAGE 05</span>
+              <h4>Streamed Response</h4>
+              <p>Container response traverses the established bidirectional TCP stream back to the waiting client.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Pragmatic 3-Step Walkthrough -->
+        <div style="margin-top: 4rem;">
+          <div class="section-head" style="margin-bottom: 2rem;">
+            <p class="section-kicker">Deployment</p>
+            <h3 class="section-title" style="font-size: 1.65rem;">Three steps to a self-aware fleet</h3>
+          </div>
+          <div class="steps">
+            <div class="step">
+              <h3>1. Install the daemon on each VM</h3>
+              <p>One lightweight command installs the single binary, sets up a system user, and configures the systemd unit.</p>
+            </div>
+            <div class="step">
+              <h3>2. Nodes form the mesh &amp; elect a leader</h3>
+              <p>WireGuard links establish, gossip discovers peers in seconds, and the highest-priority live node takes the ingress.</p>
+            </div>
+            <div class="step">
+              <h3>3. Route seamlessly across the fleet</h3>
+              <p>One entry point for multiple servers. As services spin up and down, BRIDGE updates the routing table automatically.</p>
+            </div>
           </div>
         </div>
       </div>
@@ -200,7 +503,7 @@
     <div class="container footer-grid">
       <div>
         <a class="wordmark" href="index.html"><img src="assets/favicon.png" alt="" aria-hidden="true">BRIDGE</a>
-        <p class="muted">A lightweight daemon that runs on your VMs to turn a fleet into one self-aware system—bridging the brain across your nodes.</p>
+        <p class="muted">A lightweight daemon that runs on your VMs to turn a fleet into one self-aware system, bridging the brain across your nodes.</p>
       </div>
       <nav aria-label="Documentation">
         <h4>Docs</h4>

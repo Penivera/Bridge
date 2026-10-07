@@ -65,23 +65,142 @@
 
       <h2 id="cli">CLI reference</h2>
       <p>
-        The <code>bridge</code> CLI talks to the running daemon over its Unix socket
-        (<code>/tmp/bridge.sock</code>, see <a href="configuration.html">[ipc]</a>).
+        The <code>bridge</code> CLI talks to the running daemon over its local Unix Domain Socket
+        (<code>/tmp/bridge.sock</code>, configured via <a href="configuration.html">[ipc]</a>).
+        It provides subcommands for every day-two operation: health diagnostics, atomic configuration mutations,
+        cluster membership queries, WireGuard mesh inspection, consensus re-evaluation, and route management.
       </p>
+
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Command</th><th>Description</th></tr></thead>
+          <thead><tr><th>Command</th><th>Category</th><th>Description</th></tr></thead>
           <tbody>
-            <tr><td><code>bridge status</code></td><td>Daemon and fleet summary: uptime, role (leader/follower), membership counts.</td></tr>
-            <tr><td><code>bridge routes</code></td><td>List all routes, static and discovered.</td></tr>
-            <tr><td><code>bridge add-route</code></td><td>Add a route to the running daemon.</td></tr>
-            <tr><td><code>bridge remove-route</code></td><td>Remove a route from the running daemon.</td></tr>
-            <tr><td><code>bridge cluster</code></td><td>Show cluster membership and each node's lifecycle state.</td></tr>
-            <tr><td><code>bridge inspect &lt;domain&gt;</code></td><td>Inspect the route and upstream resolution for a hostname.</td></tr>
-            <tr><td><code>bridge replicas</code></td><td>Show failover-duplication replicas and their placement.</td></tr>
-            <tr><td><code>bridge ping</code></td><td>Check that the daemon answers over the IPC socket.</td></tr>
+            <tr><td><code>bridge health</code></td><td>Health</td><td>Comprehensive daemon health check, cluster summary, routes, and uptime.</td></tr>
+            <tr><td><code>bridge status</code></td><td>Fleet</td><td>Fleet overview: local role (Leader / Follower), leader ID, member counts, proxy port.</td></tr>
+            <tr><td><code>bridge version</code></td><td>Diagnostics</td><td>Show build version, git commit, target architecture, and active subsystems.</td></tr>
+            <tr><td><code>bridge ping</code></td><td>Diagnostics</td><td>Ping the running daemon over IPC; exits with code 0 on success.</td></tr>
+            <tr><td><code>bridge config show</code></td><td>Config</td><td>Output the currently active daemon configuration in TOML format.</td></tr>
+            <tr><td><code>bridge config validate</code></td><td>Config</td><td>Validate syntax and CIDR subnet validity of a config file.</td></tr>
+            <tr><td><code>bridge config reload</code></td><td>Config</td><td>Hot-reload the configuration file from disk and synchronize routes.</td></tr>
+            <tr><td><code>bridge config get &lt;key&gt;</code></td><td>Config</td><td>Read a specific configuration key (e.g. <code>node.id</code>, <code>mesh.listen_port</code>).</td></tr>
+            <tr><td><code>bridge config set &lt;key&gt; &lt;val&gt;</code></td><td>Config</td><td>Atomically update a config key on disk and reload the daemon immediately.</td></tr>
+            <tr><td><code>bridge nodes</code></td><td>Cluster</td><td>List all known cluster nodes with lifecycle states, mesh IPs, and priorities.</td></tr>
+            <tr><td><code>bridge node inspect &lt;id&gt;</code></td><td>Cluster</td><td>Deep-dive telemetry for a single node (heartbeat, IP, priority, state).</td></tr>
+            <tr><td><code>bridge mesh status</code></td><td>Mesh</td><td>Inspect local WireGuard interface (<code>wg0</code>), mesh IP, port, public key.</td></tr>
+            <tr><td><code>bridge mesh peers</code></td><td>Mesh</td><td>List all active WireGuard peers, their AllowedIPs, endpoints, and status.</td></tr>
+            <tr><td><code>bridge election status</code></td><td>Consensus</td><td>Display leader ID, local role, election term, and candidate priority scores.</td></tr>
+            <tr><td><code>bridge election trigger</code></td><td>Consensus</td><td>Trigger a leader election re-evaluation or manual step-down across the fleet.</td></tr>
+            <tr><td><code>bridge proxy status</code></td><td>Proxy</td><td>Report L7/L4 proxy state, listening ports, and active backend targets.</td></tr>
+            <tr><td><code>bridge routes</code></td><td>Routing</td><td>List all registered routing table entries (static and Docker discovered).</td></tr>
+            <tr><td><code>bridge add-route &lt;domain&gt; &lt;up&gt;</code></td><td>Routing</td><td>Dynamically add an ingress route directly into the daemon registry.</td></tr>
+            <tr><td><code>bridge remove-route &lt;domain&gt;</code></td><td>Routing</td><td>Evict an ingress route from the daemon registry.</td></tr>
+            <tr><td><code>bridge inspect &lt;domain&gt;</code></td><td>Routing</td><td>Inspect route resolution and consistent-hash backend targets for a domain.</td></tr>
+            <tr><td><code>bridge replicas</code></td><td>Resilience</td><td>Show failover-duplication replicas, original nodes, and placement status.</td></tr>
           </tbody>
         </table>
+      </div>
+
+      <h3>Health &amp; Diagnostics</h3>
+      <p>Quickly probe daemon responsiveness, uptime, and cluster health for automated monitoring scripts:</p>
+      <div class="codeblock">
+        <button class="copy-btn" type="button" data-copy-target="#cli-health-cmd">Copy</button>
+<pre id="cli-health-cmd"><code><span class="c"># Verify daemon status and cluster health in one call</span>
+bridge health
+
+<span class="c"># Ping the daemon IPC socket (useful for systemd ExecStartPost or Docker healthchecks)</span>
+bridge ping
+
+<span class="c"># Inspect version, git commit, and active subsystems</span>
+bridge version</code></pre>
+      </div>
+
+      <h3>Dynamic Configuration Management</h3>
+      <p>
+        Inspect and mutate configuration without editing files manually or causing downtime. <code>bridge config set</code>
+        modifies the on-disk TOML atomically and automatically triggers a live reload.
+      </p>
+      <div class="codeblock">
+        <button class="copy-btn" type="button" data-copy-target="#cli-config-cmd">Copy</button>
+<pre id="cli-config-cmd"><code><span class="c"># Dump the running configuration</span>
+bridge config show
+
+<span class="c"># Validate a configuration file before applying</span>
+bridge config validate --path /etc/bridge/bridge.toml
+
+<span class="c"># Read a specific runtime setting</span>
+bridge config get node.priority
+bridge config get mesh.listen_port
+
+<span class="c"># Atomically update a setting on disk and hot-reload</span>
+bridge config set node.priority 150
+bridge config set proxy.http_port 8080
+
+<span class="c"># Hot-reload configuration after manual disk edits</span>
+bridge config reload</code></pre>
+      </div>
+
+      <h3>Cluster Membership &amp; Node Inspection</h3>
+      <p>
+        BRIDGE tracks node health via epidemic SWIM gossip. Inspect member states (<code>Alive</code>, <code>Suspected</code>,
+        <code>Dead</code>, <code>Recovered</code>) across the fleet:
+      </p>
+      <div class="codeblock">
+        <button class="copy-btn" type="button" data-copy-target="#cli-nodes-cmd">Copy</button>
+<pre id="cli-nodes-cmd"><code><span class="c"># List all nodes with their status, IP, priority, and role</span>
+bridge nodes
+
+<span class="c"># Deep-dive into a specific node's gossip telemetry</span>
+bridge node inspect node-02</code></pre>
+      </div>
+
+      <h3>WireGuard Mesh &amp; Tunnels</h3>
+      <p>
+        Diagnose the encrypted L3 overlay network directly without needing external <code>wg</code> utilities:
+      </p>
+      <div class="codeblock">
+        <button class="copy-btn" type="button" data-copy-target="#cli-mesh-cmd">Copy</button>
+<pre id="cli-mesh-cmd"><code><span class="c"># View local WireGuard interface, local mesh IP (10.8.0.x), and public key</span>
+bridge mesh status
+
+<span class="c"># List active peer tunnels, endpoints, and AllowedIPs</span>
+bridge mesh peers</code></pre>
+      </div>
+
+      <h3>Consensus &amp; Ingress Failover</h3>
+      <p>
+        BRIDGE uses an autonomous bully election algorithm weighted by node priority. Inspect leadership state
+        or manually trigger an election during maintenance windows:
+      </p>
+      <div class="codeblock">
+        <button class="copy-btn" type="button" data-copy-target="#cli-election-cmd">Copy</button>
+<pre id="cli-election-cmd"><code><span class="c"># Check current leader, election term, and whether local node holds the ingress</span>
+bridge election status
+
+<span class="c"># Trigger fleet election re-evaluation (e.g. before taking node down for maintenance)</span>
+bridge election trigger</code></pre>
+      </div>
+
+      <h3>Proxy &amp; Route Management</h3>
+      <p>
+        Manage ingress routes dynamically. Added routes are registered in the daemon's internal radix tree and
+        consistent hash ring immediately:
+      </p>
+      <div class="codeblock">
+        <button class="copy-btn" type="button" data-copy-target="#cli-routes-cmd">Copy</button>
+<pre id="cli-routes-cmd"><code><span class="c"># Inspect proxy listeners and active route count</span>
+bridge proxy status
+
+<span class="c"># List all active routes (static and Docker-discovered)</span>
+bridge routes
+
+<span class="c"># Register a new service route on the fly</span>
+bridge add-route api.example.com http://10.8.0.2:8000
+
+<span class="c"># Remove a service route</span>
+bridge remove-route api.example.com
+
+<span class="c"># Test upstream resolution and consistent-hash target for a hostname</span>
+bridge inspect api.example.com</code></pre>
       </div>
 
       <h2 id="health">Health endpoint</h2>
@@ -164,7 +283,7 @@ curl -fsSL https://bridgemesh.space/install.sh | BRIDGE_VERSION=v1.2.3 sh</code>
     <div class="container footer-grid">
       <div>
         <a class="wordmark" href="../index.html"><img src="../assets/favicon.png" alt="" aria-hidden="true">BRIDGE</a>
-        <p class="muted">A lightweight daemon that runs on your VMs to turn a fleet into one self-aware system—bridging the brain across your nodes.</p>
+        <p class="muted">A lightweight daemon that runs on your VMs to turn a fleet into one self-aware system, bridging the brain across your nodes.</p>
       </div>
       <nav aria-label="Documentation">
         <h4>Docs</h4>

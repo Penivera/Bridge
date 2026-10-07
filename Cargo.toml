@@ -60,10 +60,14 @@ x25519-dalek = { workspace = true }
 rand = { workspace = true }
 foca = { workspace = true }
 thiserror = "2"
-axum = { version = "0.8", features = ["ws"] }
-tower-http = { version = "0.6", features = ["timeout"] }
+axum = { version = "0.8", features = ["ws"], optional = true }
+tower-http = { version = "0.6", features = ["timeout"], optional = true }
 argon2 = "0.6.0"
 rpassword = "7.5.4"
+
+[features]
+default = ["dashboard"]
+dashboard = ["dep:axum", "dep:tower-http"]
 
 
 [[bin]]

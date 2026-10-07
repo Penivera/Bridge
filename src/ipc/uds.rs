@@ -52,6 +52,17 @@ pub enum IpcRequest {
         username: String,
         password: String,
     },
+    GetConfig,
+    ReloadConfig,
+    SetConfigKey {
+        key: String,
+        value: String,
+    },
+    MeshStatus,
+    ElectionStatus,
+    TriggerElection,
+    ProxyStatus,
+    Health,
 }
 
 /// Outbound control responses sent back over the Unix domain socket.
@@ -82,6 +93,49 @@ pub enum IpcData {
         is_leader: Option<bool>,
         #[serde(skip_serializing_if = "Option::is_none")]
         active_replicas_count: Option<usize>,
+    },
+    HealthSummary {
+        system_health: String,
+        uptime_secs: u64,
+        cluster_health: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        local_node_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        is_leader: Option<bool>,
+        total_nodes: usize,
+        healthy_nodes: usize,
+        total_routes: usize,
+        healthy_routes: usize,
+        active_replicas: usize,
+    },
+    ProxyStatus {
+        mode: String,
+        routes_count: usize,
+        healthy_routes: usize,
+        dead_routes: usize,
+        uptime_secs: u64,
+    },
+    MeshDevice {
+        interface_name: String,
+        mesh_ip: IpAddr,
+        public_key: String,
+        listen_port: u16,
+        peers_count: usize,
+        peers: Vec<MeshPeerInfo>,
+    },
+    ElectionInfo {
+        current_leader: Option<String>,
+        term: u64,
+        role: String,
+        quorum_required: usize,
+        total_known_nodes: usize,
+        acks_count: usize,
+        is_leader: bool,
+    },
+    ConfigView {
+        config: serde_json::Value,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        path: Option<String>,
     },
     Routes {
         routes: HashMap<String, RouteInfo>,
@@ -138,6 +192,15 @@ pub enum IpcData {
     Message {
         message: String,
     },
+}
+
+/// Mesh peer info returned over IPC.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MeshPeerInfo {
+    pub public_key: String,
+    pub endpoint: Option<SocketAddr>,
+    pub allowed_ips: Vec<String>,
+    pub persistent_keepalive: u16,
 }
 
 /// Serializable representation of a route returned over IPC.
@@ -670,6 +733,238 @@ async fn handle_ipc_connection(
                         Err(message) => IpcResponse::Error { message },
                     }
                 }
+                IpcRequest::GetConfig => {
+                    let p_guard = user_state.config_path.read().await;
+                    let path = p_guard.clone();
+                    let j_guard = user_state.config_json.read().await;
+                    let json_val = if let Some(v) = j_guard.as_ref() {
+                        v.clone()
+                    } else if let Some(p) = &path {
+                        if let Ok(raw) = std::fs::read_to_string(p) {
+                            let is_yaml = matches!(p.extension().and_then(|e| e.to_str()), Some("yaml" | "yml"));
+                            if is_yaml {
+                                serde_yaml::from_str(&raw).unwrap_or(serde_json::Value::Null)
+                            } else {
+                                toml::from_str(&raw).unwrap_or(serde_json::Value::Null)
+                            }
+                        } else {
+                            serde_json::Value::Null
+                        }
+                    } else {
+                        serde_json::Value::Null
+                    };
+                    IpcResponse::Ok {
+                        data: IpcData::ConfigView {
+                            config: json_val,
+                            path: path.map(|p| p.display().to_string()),
+                        },
+                    }
+                }
+                IpcRequest::ReloadConfig => {
+                    let p_guard = user_state.config_path.read().await;
+                    if let Some(path) = p_guard.clone() {
+                        let load_result = crate::core::config::Config::load_auto(Some(&path)).map_err(|e| e.to_string());
+                        match load_result {
+                            Ok(cfg) => {
+                                let node_map: HashMap<&String, &Node> = cfg.nodes.iter().map(|n| (&n.node_id, n)).collect();
+                                let new_routes = crate::daemon::build_initial_routes(&cfg, &node_map);
+                                for (dom, route) in new_routes {
+                                    registry.insert_versioned(dom, route);
+                                }
+                                if let Some(view) = crate::daemon::load_config_view(&cfg) {
+                                    *user_state.config_json.write().await = Some(view);
+                                }
+                                IpcResponse::Ok {
+                                    data: IpcData::Message {
+                                        message: format!("Successfully reloaded configuration from {}", path.display()),
+                                    },
+                                }
+                            }
+                            Err(err) => IpcResponse::Error {
+                                message: format!("Failed to reload config from {}: {err}", path.display()),
+                            },
+                        }
+                    } else {
+                        IpcResponse::Error {
+                            message: "No configuration file loaded on daemon; cannot reload".to_string(),
+                        }
+                    }
+                }
+                IpcRequest::SetConfigKey { key, value } => {
+                    match handle_config_set(&user_state, &key, &value).await {
+                        Ok(msg) => IpcResponse::Ok {
+                            data: IpcData::Message { message: msg },
+                        },
+                        Err(err) => IpcResponse::Error { message: err },
+                    }
+                }
+                IpcRequest::MeshStatus => {
+                    let cluster_guard = cluster_slot.read().await;
+                    if let Some(ctrl) = cluster_guard.as_ref() {
+                        let wg_guard = ctrl.wireguard.read().await;
+                        let peers: Vec<MeshPeerInfo> = wg_guard
+                            .list_peers()
+                            .into_iter()
+                            .map(|p| MeshPeerInfo {
+                                public_key: p.public_key,
+                                endpoint: p.endpoint,
+                                allowed_ips: p.allowed_ips,
+                                persistent_keepalive: p.persistent_keepalive,
+                            })
+                            .collect();
+                        IpcResponse::Ok {
+                            data: IpcData::MeshDevice {
+                                interface_name: wg_guard.interface_name.clone(),
+                                mesh_ip: wg_guard.mesh_ip,
+                                public_key: wg_guard.public_key.clone(),
+                                listen_port: wg_guard.listen_port,
+                                peers_count: peers.len(),
+                                peers,
+                            },
+                        }
+                    } else {
+                        IpcResponse::Error {
+                            message: "WireGuard cluster mesh not active on this node (standalone mode)".to_string(),
+                        }
+                    }
+                }
+                IpcRequest::ElectionStatus => {
+                    let cluster_guard = cluster_slot.read().await;
+                    if let Some(ctrl) = cluster_guard.as_ref() {
+                        let election = ctrl.election_state.read().await;
+                        let leader_id = election.current_leader.as_ref().map(|l| l.node_id.clone());
+                        let is_leader = leader_id.as_deref() == Some(&ctrl.local_node.node_id);
+                        let quorum = election.quorum_required();
+                        let total = election.total_known_nodes;
+                        let acks_count = election.acks.len();
+                        let role = format!("{:?}", election.role);
+                        let term = election.term;
+
+                        IpcResponse::Ok {
+                            data: IpcData::ElectionInfo {
+                                current_leader: leader_id,
+                                term,
+                                role,
+                                quorum_required: quorum,
+                                total_known_nodes: total,
+                                acks_count,
+                                is_leader,
+                            },
+                        }
+                    } else {
+                        IpcResponse::Error {
+                            message: "Leader election not active on this node (standalone mode)".to_string(),
+                        }
+                    }
+                }
+                IpcRequest::TriggerElection => {
+                    let cluster_guard = cluster_slot.read().await;
+                    if let Some(ctrl) = cluster_guard.as_ref() {
+                        match ctrl.start_election().await {
+                            Ok(won) => IpcResponse::Ok {
+                                data: IpcData::Message {
+                                    message: if won {
+                                        "Election initiated: local node declared coordinator (leader)".to_string()
+                                    } else {
+                                        "Election initiated: candidate challenge sent across cluster".to_string()
+                                    },
+                                },
+                            },
+                            Err(err) => IpcResponse::Error {
+                                message: format!("Failed to initiate election: {err}"),
+                            },
+                        }
+                    } else {
+                        IpcResponse::Error {
+                            message: "Cluster mesh not enabled or active on this node".to_string(),
+                        }
+                    }
+                }
+                IpcRequest::ProxyStatus => {
+                    let total_routes = registry.len();
+                    let snapshot = registry.snapshot();
+                    let cluster_guard = cluster_slot.read().await;
+                    let mut healthy_routes = 0;
+                    let mut dead_routes = 0;
+                    for (_, r) in snapshot.iter() {
+                        let alive = if let Some(ctrl) = cluster_guard.as_ref() {
+                            ctrl.local_node.node_id == r.node.node_id
+                                || ctrl.peers.read().await.contains_key(&r.node.node_id)
+                        } else {
+                            true
+                        };
+                        if alive { healthy_routes += 1; } else { dead_routes += 1; }
+                    }
+                    IpcResponse::Ok {
+                        data: IpcData::ProxyStatus {
+                            mode: format!("{:?}", proxy_mode),
+                            routes_count: total_routes,
+                            healthy_routes,
+                            dead_routes,
+                            uptime_secs: start_time.elapsed().as_secs(),
+                        },
+                    }
+                }
+                IpcRequest::Health => {
+                    let total_routes = registry.len();
+                    let snapshot = registry.snapshot();
+                    let cluster_guard = cluster_slot.read().await;
+                    let mut healthy_routes = 0;
+                    let mut dead_routes = 0;
+                    let mut cluster_health = "standalone".to_string();
+                    let mut total_nodes = 1;
+                    let mut healthy_nodes = 1;
+                    let mut local_node_id = None;
+                    let mut is_leader = None;
+
+                    if let Some(ctrl) = cluster_guard.as_ref() {
+                        local_node_id = Some(ctrl.local_node.node_id.clone());
+                        let election = ctrl.election_state.read().await;
+                        is_leader = Some(election.current_leader.as_ref().is_some_and(|l| l.node_id == ctrl.local_node.node_id));
+                        let peers_map = ctrl.peers.read().await;
+                        total_nodes = 1 + peers_map.len();
+                        healthy_nodes = 1 + peers_map.len();
+                        cluster_health = if election.current_leader.is_some() {
+                            "healthy".to_string()
+                        } else {
+                            "electing".to_string()
+                        };
+                        for (_, r) in snapshot.iter() {
+                            let alive = ctrl.local_node.node_id == r.node.node_id
+                                || peers_map.contains_key(&r.node.node_id);
+                            if alive { healthy_routes += 1; } else { dead_routes += 1; }
+                        }
+                    } else {
+                        healthy_routes = total_routes;
+                    }
+
+                    let active_replicas = if let Some(dup) = duplicator_slot.read().await.as_ref() {
+                        dup.list_replicas().await.len()
+                    } else {
+                        0
+                    };
+
+                    let status = if dead_routes > 0 || cluster_health == "electing" {
+                        "degraded".to_string()
+                    } else {
+                        "healthy".to_string()
+                    };
+
+                    IpcResponse::Ok {
+                        data: IpcData::HealthSummary {
+                            system_health: status,
+                            uptime_secs: start_time.elapsed().as_secs(),
+                            cluster_health,
+                            local_node_id,
+                            is_leader,
+                            total_nodes,
+                            healthy_nodes,
+                            total_routes,
+                            healthy_routes,
+                            active_replicas,
+                        },
+                    }
+                }
             },
             Err(err) => IpcResponse::Error {
                 message: format!("invalid JSON request: {err}"),
@@ -785,6 +1080,104 @@ async fn handle_user_upsert(
         .map_err(|e| e.to_string())?;
 
     Ok(created)
+}
+
+/// Updates a configuration setting, persists it to the config file on disk,
+/// and updates the runtime config view.
+async fn handle_config_set(
+    user_state: &UserManagementState,
+    key: &str,
+    value: &str,
+) -> Result<String, String> {
+    let path = {
+        let guard = user_state.config_path.read().await;
+        guard
+            .clone()
+            .ok_or_else(|| "no configuration file loaded; cannot update settings".to_string())?
+    };
+
+    let mut doc = {
+        let guard = user_state.config_json.read().await;
+        if let Some(view) = guard.as_ref() {
+            view.clone()
+        } else {
+            let raw = std::fs::read_to_string(&path)
+                .map_err(|e| format!("cannot read config file {}: {e}", path.display()))?;
+            let is_yaml = matches!(
+                path.extension().and_then(|e| e.to_str()),
+                Some("yaml" | "yml")
+            );
+            if is_yaml {
+                serde_yaml::from_str(&raw).map_err(|e| format!("invalid YAML config: {e}"))?
+            } else {
+                toml::from_str(&raw).map_err(|e| format!("invalid TOML config: {e}"))?
+            }
+        }
+    };
+
+    let parsed_val: serde_json::Value = if value.eq_ignore_ascii_case("true") {
+        serde_json::Value::Bool(true)
+    } else if value.eq_ignore_ascii_case("false") {
+        serde_json::Value::Bool(false)
+    } else if let Ok(n) = value.parse::<i64>() {
+        serde_json::Value::Number(n.into())
+    } else {
+        serde_json::Value::String(value.to_string())
+    };
+
+    let parts: Vec<&str> = key.split('.').collect();
+    if parts.is_empty() {
+        return Err("empty configuration key".to_string());
+    }
+
+    let mut current = &mut doc;
+    for (i, part) in parts.iter().enumerate() {
+        if i == parts.len() - 1 {
+            if let serde_json::Value::Object(map) = current {
+                map.insert((*part).to_string(), parsed_val.clone());
+            } else {
+                return Err(format!("cannot set '{key}': parent is not an object"));
+            }
+        } else {
+            if !current.is_object() {
+                *current = serde_json::Value::Object(serde_json::Map::new());
+            }
+            current = current
+                .as_object_mut()
+                .unwrap()
+                .entry((*part).to_string())
+                .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
+        }
+    }
+
+    let is_yaml = matches!(
+        path.extension().and_then(|e| e.to_str()),
+        Some("yaml" | "yml")
+    );
+    let serialized = if is_yaml {
+        serde_yaml::to_string(&doc).map_err(|e| format!("cannot encode YAML: {e}"))?
+    } else {
+        toml::to_string(&doc).map_err(|e| format!("cannot encode TOML: {e}"))?
+    };
+
+    if is_yaml {
+        crate::core::config::Config::from_yaml_str(&serialized)
+            .map_err(|e| format!("invalid configuration after change: {e}"))?;
+    } else {
+        crate::core::config::Config::from_toml_str(&serialized)
+            .map_err(|e| format!("invalid configuration after change: {e}"))?;
+    }
+
+    let tmp_path = path.with_extension("tmp");
+    std::fs::write(&tmp_path, &serialized)
+        .map_err(|e| format!("failed to write config: {e}"))?;
+    std::fs::rename(&tmp_path, &path).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp_path);
+        format!("failed to replace config: {e}")
+    })?;
+
+    *user_state.config_json.write().await = Some(doc);
+    Ok(format!("Configuration updated: {key} = {value} ({})", path.display()))
 }
 
 /// Client for connecting to the Bridge IPC Unix domain socket.
@@ -1021,6 +1414,89 @@ impl IpcClient {
             } => Ok(message),
             IpcResponse::Error { message } => Err(message.into()),
             other => Err(format!("unexpected response: {:?}", other).into()),
+        }
+    }
+
+    /// Retrieves the runtime configuration document from the daemon.
+    pub async fn get_config(&mut self) -> Result<IpcData, Box<dyn std::error::Error>> {
+        match self.send(&IpcRequest::GetConfig).await? {
+            IpcResponse::Ok { data } => Ok(data),
+            IpcResponse::Error { message } => Err(message.into()),
+        }
+    }
+
+    /// Triggers configuration reload from disk on the running daemon.
+    pub async fn reload_config(&mut self) -> Result<String, Box<dyn std::error::Error>> {
+        match self.send(&IpcRequest::ReloadConfig).await? {
+            IpcResponse::Ok {
+                data: IpcData::Message { message },
+            } => Ok(message),
+            IpcResponse::Error { message } => Err(message.into()),
+            other => Err(format!("unexpected response: {:?}", other).into()),
+        }
+    }
+
+    /// Sets a configuration key and persists it to disk.
+    pub async fn set_config_key(
+        &mut self,
+        key: &str,
+        value: &str,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        match self
+            .send(&IpcRequest::SetConfigKey {
+                key: key.to_string(),
+                value: value.to_string(),
+            })
+            .await?
+        {
+            IpcResponse::Ok {
+                data: IpcData::Message { message },
+            } => Ok(message),
+            IpcResponse::Error { message } => Err(message.into()),
+            other => Err(format!("unexpected response: {:?}", other).into()),
+        }
+    }
+
+    /// Retrieves WireGuard mesh device info and configured peers.
+    pub async fn mesh_status(&mut self) -> Result<IpcData, Box<dyn std::error::Error>> {
+        match self.send(&IpcRequest::MeshStatus).await? {
+            IpcResponse::Ok { data } => Ok(data),
+            IpcResponse::Error { message } => Err(message.into()),
+        }
+    }
+
+    /// Retrieves Bully leader election state.
+    pub async fn election_status(&mut self) -> Result<IpcData, Box<dyn std::error::Error>> {
+        match self.send(&IpcRequest::ElectionStatus).await? {
+            IpcResponse::Ok { data } => Ok(data),
+            IpcResponse::Error { message } => Err(message.into()),
+        }
+    }
+
+    /// Triggers a leadership election cycle or step-down.
+    pub async fn trigger_election(&mut self) -> Result<String, Box<dyn std::error::Error>> {
+        match self.send(&IpcRequest::TriggerElection).await? {
+            IpcResponse::Ok {
+                data: IpcData::Message { message },
+            } => Ok(message),
+            IpcResponse::Error { message } => Err(message.into()),
+            other => Err(format!("unexpected response: {:?}", other).into()),
+        }
+    }
+
+    /// Retrieves proxy engine status, mode, and target routing counts.
+    pub async fn proxy_status(&mut self) -> Result<IpcData, Box<dyn std::error::Error>> {
+        match self.send(&IpcRequest::ProxyStatus).await? {
+            IpcResponse::Ok { data } => Ok(data),
+            IpcResponse::Error { message } => Err(message.into()),
+        }
+    }
+
+    /// Retrieves system health summary.
+    pub async fn health(&mut self) -> Result<IpcData, Box<dyn std::error::Error>> {
+        match self.send(&IpcRequest::Health).await? {
+            IpcResponse::Ok { data } => Ok(data),
+            IpcResponse::Error { message } => Err(message.into()),
         }
     }
 }

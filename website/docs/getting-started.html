@@ -39,34 +39,78 @@
     <div class="container docs-main">
       <div class="page-head">
         <p class="breadcrumb"><a href="getting-started.html">Docs</a><span class="sep">/</span>Getting started</p>
-        <h1>Getting started</h1>
-        <p class="lead">From zero to a two-node mesh: install, configure a standalone node, add a route, then join a peer.</p>
+        <h1>Multi-node Deployment Guide</h1>
+        <p class="lead">From bare VMs to an encrypted, self-aware fleet: how nodes get their mesh IP, bootstrap WireGuard, elect an edge leader, and route cross-fleet traffic.</p>
       </div>
 
-      <h2 id="install">1. Install the daemon</h2>
-      <p>Run the installer on every VPS you want in the fleet:</p>
-      <div class="codeblock">
-        <button class="copy-btn" type="button" data-copy-target="#gs-install">Copy</button>
-<pre id="gs-install"><code>curl -fsSL https://bridgemesh.space/install.sh | sh</code></pre>
-      </div>
+      <h2 id="how-mesh-ip-works">How nodes get their mesh IP</h2>
       <p>
-        The installer places the binary in <code>/usr/local/bin</code>, creates a
-        <code>bridge</code> system user and <code>/etc/bridge</code>, writes a minimal
-        config if none exists, and enables a systemd service. See
-        <a href="../install.html">Install</a> for details and manual installation.
+        BRIDGE creates a decentralized Layer 3 overlay network directly inside the Linux kernel.
+        Unlike legacy VPNs or centralized SD-WANs, there is no central controller or hub-and-spoke bottleneck:
+      </p>
+      <div class="grid">
+        <div class="card">
+          <span class="card-tag">Subnet design</span>
+          <h3>1. Overlay subnet</h3>
+          <p>The cluster operates on a private subnet (conventionally <code>10.8.0.0/24</code>). Each node is assigned a unique IP within this range via <code>mesh_ip</code>.</p>
+        </div>
+        <div class="card">
+          <span class="card-tag">Kernel interface</span>
+          <h3>2. WireGuard interface (wg0)</h3>
+          <p>On startup, BRIDGE creates and provisions the <code>wg0</code> interface using <code>CAP_NET_ADMIN</code>, binding <code>mesh_ip/24</code> on port <code>51820</code>.</p>
+        </div>
+        <div class="card">
+          <span class="card-tag">Crypto keys</span>
+          <h3>3. Curve25519 keypairs</h3>
+          <p>Each node generates an RFC 7748 Curve25519 keypair automatically if not explicitly configured in <code>bridge.toml</code>.</p>
+        </div>
+        <div class="card">
+          <span class="card-tag">Routing table</span>
+          <h3>4. Point-to-point routes</h3>
+          <p>When SWIM gossip discovers a peer, BRIDGE programs a kernel peer route with <code>AllowedIPs = [&lt;peer_mesh_ip&gt;/32]</code> pointing to that peer's public UDP endpoint.</p>
+        </div>
+      </div>
+      <p class="muted">
+        Traffic routed across nodes flows directly point-to-point over WireGuard at kernel speed. If node-01 needs to send a request to a container running on node-02, it sends packets to <code>10.8.0.2</code>, which tunnel securely over UDP without transit through an intermediary.
       </p>
 
-      <h2 id="standalone-config">2. Minimal standalone config</h2>
+      <h2 id="prerequisites">Prerequisites &amp; Firewall</h2>
+      <p>Before installing, ensure each VM can reach peers on the required ports:</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Port / Protocol</th><th>Direction</th><th>Purpose</th></tr></thead>
+          <tbody>
+            <tr><td><code>80 / TCP</code>, <code>443 / TCP</code></td><td>Inbound (Public)</td><td>Ingress HTTP/HTTPS traffic from clients.</td></tr>
+            <tr><td><code>51820 / UDP</code></td><td>Inbound / Outbound (Inter-node)</td><td>Encrypted WireGuard mesh tunnels and SWIM gossip heartbeats.</td></tr>
+            <tr><td><code>9090 / TCP</code></td><td>Localhost / Private</td><td>Embedded operations console, JSON API, and WebSocket event stream.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2 id="step-1-install">Step 1: Install BRIDGE on each VM</h2>
+      <p>Run the installation script on all nodes you want in the cluster (e.g. <code>node-01</code>, <code>node-02</code>, <code>node-03</code>):</p>
+      <div class="cmd-bar">
+        <span class="prompt" aria-hidden="true">$</span>
+        <code id="gs-install-cmd">curl -fsSL https://bridgemesh.space/install.sh | sh</code>
+        <button class="copy-btn" type="button" data-copy-target="#gs-install-cmd">Copy</button>
+      </div>
       <p>
-        A single node runs fine on its own: omit the <code>[node]</code> section entirely
-        and BRIDGE operates in standalone mode. Edit <code>/etc/bridge/bridge.toml</code>:
+        The installer configures <code>/usr/local/bin/bridge</code>, sets up the dedicated
+        <code>bridge</code> system user with <code>CAP_NET_BIND_SERVICE</code> and
+        <code>CAP_NET_ADMIN</code>, and provisions a systemd unit.
+      </p>
+
+      <h2 id="step-2-bootstrap">Step 2: Configure the bootstrap node (node-01)</h2>
+      <p>
+        Designate your first node (e.g. <code>node-01</code> on public IP <code>203.0.113.10</code>)
+        as the bootstrap seed and edge leader. Edit <code>/etc/bridge/bridge.toml</code>:
       </p>
       <div class="codeblock">
-        <button class="copy-btn" type="button" data-copy-target="#gs-config">Copy</button>
-<pre id="gs-config"><code>enable_telemetry = false
+        <button class="copy-btn" type="button" data-copy-target="#gs-node1-cfg">Copy</button>
+<pre id="gs-node1-cfg"><code>enable_telemetry = false
 
 [proxy]
-mode = "Direct"            <span class="c"># Direct | SniPassthrough | Managed</span>
+mode = "Direct"
 listeners = ["http"]
 http_addr = "0.0.0.0:80"
 
@@ -78,118 +122,118 @@ listen_addr = "127.0.0.1:9090"
 enabled = true
 socket_path = "/tmp/bridge.sock"
 
-[logger]
-level = "INFO"
-format = "text"</code></pre>
-      </div>
-      <p>
-        Configuration is auto-discovered from <code>./bridge.toml</code>, then
-        <code>$BRIDGE_CONFIG</code>, then <code>/etc/bridge/bridge.toml</code>. TOML and
-        YAML are both accepted.
-      </p>
-
-      <h2 id="first-route">3. Add your first route</h2>
-      <p>
-        Point a hostname at an upstream on this node by appending a
-        <code>[[services]]</code> entry:
-      </p>
-      <div class="codeblock">
-        <button class="copy-btn" type="button" data-copy-target="#gs-route">Copy</button>
-<pre id="gs-route"><code>[[services]]
-url = "https://app.example.com"
-node_id = "node-01"
-upstream = "127.0.0.1:3000"</code></pre>
-      </div>
-      <p>
-        In <code>Direct</code> mode the daemon reverse-proxies HTTP for that hostname to
-        the upstream. Routes can also come from Docker auto-discovery: labeled containers
-        become routes automatically when <code>[discovery]</code> is enabled.
-      </p>
-
-      <h2 id="run">4. Run it</h2>
-      <p>If you used the installer, the service is already running:</p>
-      <div class="codeblock">
-        <button class="copy-btn" type="button" data-copy-target="#gs-run">Copy</button>
-<pre id="gs-run"><code>systemctl status bridge
-bridge status</code></pre>
-      </div>
-      <p>Without systemd, run the daemon in the foreground:</p>
-      <div class="codeblock">
-        <button class="copy-btn" type="button" data-copy-target="#gs-run-manual">Copy</button>
-<pre id="gs-run-manual"><code>bridge --config /etc/bridge/bridge.toml</code></pre>
-      </div>
-
-      <h2 id="dashboard">5. Check the dashboard</h2>
-      <p>
-        Open <code>http://127.0.0.1:9090</code> on the node. The embedded operations
-        dashboard shows the node, its routes, and live events over a WebSocket stream.
-        It binds to loopback by default.
-      </p>
-
-      <h2 id="second-node">6. Add a second node</h2>
-      <p>
-        To turn standalone nodes into a fleet, give each node a cluster identity and tell
-        them about each other. On <strong>node-01</strong>:
-      </p>
-      <div class="codeblock">
-        <button class="copy-btn" type="button" data-copy-target="#gs-node1">Copy</button>
-<pre id="gs-node1"><code><span class="c"># This node's cluster identity</span>
+<span class="c"># This node's cluster identity and mesh address</span>
 [node]
 id = "node-01"
 mesh_ip = "10.8.0.1"
 endpoint = "203.0.113.10:51820"
 listen_port = 51820
-priority = 100
+priority = 100               <span class="c"># Highest priority: elected leader for public ingress</span>
 
 [[nodes]]
 node_id = "node-01"
 endpoint = "203.0.113.10:51820"</code></pre>
       </div>
+      <p>Validate the syntax and start the daemon:</p>
+      <div class="codeblock">
+        <button class="copy-btn" type="button" data-copy-target="#gs-validate-cmd">Copy</button>
+<pre id="gs-validate-cmd"><code>bridge config validate --config /etc/bridge/bridge.toml
+systemctl restart bridge</code></pre>
+      </div>
+
+      <h2 id="step-3-join">Step 3: Join worker nodes to the mesh</h2>
       <p>
-        On <strong>node-02</strong>, use its own identity and list node-01 as a seed so
-        gossip has a starting point:
+        On your other VMs (<code>node-02</code> at <code>203.0.113.11</code> and <code>node-03</code> at <code>203.0.113.12</code>),
+        assign unique mesh IPs (<code>10.8.0.2</code> and <code>10.8.0.3</code>) and point them at <code>node-01</code> in <code>[[seeds]]</code>:
       </p>
       <div class="codeblock">
-        <button class="copy-btn" type="button" data-copy-target="#gs-node2">Copy</button>
-<pre id="gs-node2"><code>[node]
+        <button class="copy-btn" type="button" data-copy-target="#gs-node2-cfg">Copy</button>
+<pre id="gs-node2-cfg"><code><span class="c"># /etc/bridge/bridge.toml on node-02</span>
+enable_telemetry = false
+
+[proxy]
+mode = "Direct"
+listeners = ["http"]
+http_addr = "0.0.0.0:80"
+
+[node]
 id = "node-02"
 mesh_ip = "10.8.0.2"
 endpoint = "203.0.113.11:51820"
 listen_port = 51820
-priority = 50
+priority = 80
 
 [[seeds]]
 endpoint = "203.0.113.10:51820"
 
 [[nodes]]
-node_id = "node-01"
-endpoint = "203.0.113.10:51820"</code></pre>
+node_id = "node-02"
+endpoint = "203.0.113.11:51820"</code></pre>
       </div>
       <p>
-        The WireGuard mesh comes up on the <code>10.8.0.x</code> overlay; keys are
-        auto-generated if not configured. The <code>priority</code> field feeds the bully
-        election: the highest-priority alive node becomes leader and holds the ingress
-        entrypoint. Restart both daemons after editing the config.
-      </p>
-
-      <h2 id="watch">7. Watch the fleet converge</h2>
-      <p>
-        Within seconds, gossip membership converges. Confirm from either node:
+        On <code>node-03</code>, apply the same structure with <code>mesh_ip = "10.8.0.3"</code>,
+        its public endpoint, and <code>priority = 60</code>. Restart the service on each host:
       </p>
       <div class="codeblock">
-        <button class="copy-btn" type="button" data-copy-target="#gs-cluster">Copy</button>
-<pre id="gs-cluster"><code>bridge cluster</code></pre>
+        <button class="copy-btn" type="button" data-copy-target="#gs-restart-cmd">Copy</button>
+<pre id="gs-restart-cmd"><code>systemctl restart bridge</code></pre>
+      </div>
+
+      <h2 id="step-4-verify">Step 4: Verify the fleet using the CLI</h2>
+      <p>Inspect cluster health, mesh interfaces, and leader election using BRIDGE CLI commands:</p>
+      <div class="codeblock">
+        <button class="copy-btn" type="button" data-copy-target="#gs-verify-cmds">Copy</button>
+<pre id="gs-verify-cmds"><code><span class="c"># 1. Check overall system health</span>
+bridge health
+
+<span class="c"># 2. List nodes, mesh IPs, and elected roles</span>
+bridge nodes
+
+<span class="c"># 3. Inspect WireGuard mesh interface and active tunnels</span>
+bridge mesh status
+
+<span class="c"># 4. Check leader election consensus</span>
+bridge election status</code></pre>
+      </div>
+      <p>You should see all 3 nodes marked <code>ALIVE</code>, connected over <code>wg0</code>, with <code>node-01</code> elected as the active leader holding the public ingress boundary.</p>
+
+      <h2 id="step-5-services">Step 5: Add routes &amp; test cross-fleet traffic</h2>
+      <p>
+        Define a service running on <code>node-02</code> (e.g. a web application listening on local port 3000):
+      </p>
+      <div class="codeblock">
+        <button class="copy-btn" type="button" data-copy-target="#gs-add-route-cmd">Copy</button>
+<pre id="gs-add-route-cmd"><code>bridge add-route app.example.com --upstream 127.0.0.1:3000 --node-id node-02</code></pre>
       </div>
       <p>
-        Both nodes appear in the dashboard's nodes and mesh views, one marked as leader.
-        From here, pick an ingress <a href="architecture.html#handoff">handoff tier</a>,
-        tune <a href="configuration.html">configuration</a>, and learn the
-        <a href="operations.html">day-two operations</a>.
+        Now test traffic from your laptop or public client by sending a request to the leader's public IP:
+      </p>
+      <div class="codeblock">
+        <button class="copy-btn" type="button" data-copy-target="#gs-curl-test">Copy</button>
+<pre id="gs-curl-test"><code>curl -H "Host: app.example.com" http://203.0.113.10/</code></pre>
+      </div>
+      <p>
+        The request reaches <code>node-01</code>, matches the routing table for <code>app.example.com</code>,
+        and tunnels instantaneously across the WireGuard mesh to <code>node-02</code> (<code>10.8.0.2:3000</code>).
+      </p>
+
+      <h2 id="step-6-failover">Step 6: Test autonomous failover</h2>
+      <p>
+        Simulate an edge failure by stopping <code>node-01</code> (or triggering a step-down):
+      </p>
+      <div class="codeblock">
+        <button class="copy-btn" type="button" data-copy-target="#gs-stepdown-cmd">Copy</button>
+<pre id="gs-stepdown-cmd"><code>bridge election trigger</code></pre>
+      </div>
+      <p>
+        SWIM gossip detects the change, Bully consensus executes in milliseconds, and
+        <code>node-02</code> (the highest-priority alive peer) assumes leadership and takes
+        over the ingress entrypoint automatically. No human intervention, no stale DNS.
       </p>
 
       <div class="docs-nav-footer">
         <span>&larr; <a href="../install.html">Install</a></span>
-        <span><a href="architecture.html">Architecture</a> &rarr;</span>
+        <span><a href="operations.html">Operations &amp; CLI</a> &rarr;</span>
       </div>
     </div>
   </main>
@@ -198,7 +242,7 @@ endpoint = "203.0.113.10:51820"</code></pre>
     <div class="container footer-grid">
       <div>
         <a class="wordmark" href="../index.html"><img src="../assets/favicon.png" alt="" aria-hidden="true">BRIDGE</a>
-        <p class="muted">A lightweight daemon that runs on your VMs to turn a fleet into one self-aware system—bridging the brain across your nodes.</p>
+        <p class="muted">A lightweight daemon that runs on your VMs to turn a fleet into one self-aware system, bridging the brain across your nodes.</p>
       </div>
       <nav aria-label="Documentation">
         <h4>Docs</h4>

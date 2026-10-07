@@ -116,9 +116,46 @@
     }
   }
 
+  function initTechTabs() {
+    var tabs = document.querySelectorAll(".tech-tab-btn");
+    var panels = document.querySelectorAll(".tech-panel");
+    if (!tabs.length || !panels.length) {
+      return;
+    }
+
+    Array.prototype.forEach.call(tabs, function (tab) {
+      tab.addEventListener("click", function () {
+        var targetSelector = tab.getAttribute("data-tab-target");
+        if (!targetSelector) {
+          return;
+        }
+
+        Array.prototype.forEach.call(tabs, function (t) {
+          t.classList.remove("active");
+          t.setAttribute("aria-selected", "false");
+        });
+
+        Array.prototype.forEach.call(panels, function (p) {
+          p.classList.remove("active");
+          p.setAttribute("aria-hidden", "true");
+        });
+
+        tab.classList.add("active");
+        tab.setAttribute("aria-selected", "true");
+
+        var targetPanel = document.querySelector(targetSelector);
+        if (targetPanel) {
+          targetPanel.classList.add("active");
+          targetPanel.setAttribute("aria-hidden", "false");
+        }
+      });
+    });
+  }
+
   ready(function () {
     initNavToggle();
     initCopyButtons();
     initActiveNav();
+    initTechTabs();
   });
 })();

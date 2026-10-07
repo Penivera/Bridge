@@ -1,3 +1,5 @@
+#![cfg(feature = "dashboard")]
+
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::Arc;

@@ -179,3 +179,133 @@ async fn test_ipc_multiple_concurrent_clients() {
     let _ = shutdown_tx.send(());
     let _ = srv_handle.await;
 }
+
+#[tokio::test]
+async fn test_ipc_health_and_proxy_status() {
+    let socket = temp_socket_path("health");
+    let mut routes = std::collections::HashMap::new();
+    routes.insert(
+        "api.example.com".to_string(),
+        Route::new(
+            Some("127.0.0.1:4000".parse().unwrap()),
+            Node::new("node-01", "127.0.0.1:4000".parse().unwrap()),
+        ),
+    );
+    let registry = Arc::new(DomainRegistry::with_routes(routes));
+    let server = IpcServer::new(&socket, registry, ProxyMode::Direct);
+
+    let (shutdown_tx, shutdown_rx) = broadcast::channel(1);
+    let srv_handle = tokio::spawn(async move {
+        server.run(shutdown_rx).await.unwrap();
+    });
+
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    let mut client = IpcClient::connect(&socket).await.unwrap();
+
+    // Health check
+    let health = client.health().await.unwrap();
+    match health {
+        IpcData::HealthSummary {
+            system_health,
+            total_routes,
+            healthy_routes,
+            ..
+        } => {
+            assert_eq!(system_health, "healthy");
+            assert_eq!(total_routes, 1);
+            assert_eq!(healthy_routes, 1);
+        }
+        other => panic!("expected HealthSummary, got {other:?}"),
+    }
+
+    // Proxy status check
+    let proxy_status = client.proxy_status().await.unwrap();
+    match proxy_status {
+        IpcData::ProxyStatus {
+            mode,
+            routes_count,
+            healthy_routes,
+            ..
+        } => {
+            assert_eq!(mode, "Direct");
+            assert_eq!(routes_count, 1);
+            assert_eq!(healthy_routes, 1);
+        }
+        other => panic!("expected ProxyStatus, got {other:?}"),
+    }
+
+    let _ = shutdown_tx.send(());
+    let _ = srv_handle.await;
+}
+
+#[tokio::test]
+async fn test_ipc_config_view_and_set() {
+    let socket = temp_socket_path("config");
+    let registry = Arc::new(DomainRegistry::new());
+    let mut server = IpcServer::new(&socket, registry, ProxyMode::Direct);
+
+    // Create a temporary config file for the test
+    let tmp_config = temp_socket_path("cfg-test").with_extension("toml");
+    std::fs::write(
+        &tmp_config,
+        r#"
+enable_telemetry = false
+
+[proxy]
+mode = "Direct"
+
+[logger]
+level = "INFO"
+"#,
+    )
+    .unwrap();
+
+    let json_slot = Arc::new(tokio::sync::RwLock::new(None));
+    let path_slot = Arc::new(tokio::sync::RwLock::new(Some(tmp_config.clone())));
+    server.set_config_slots(json_slot, path_slot);
+
+    let (shutdown_tx, shutdown_rx) = broadcast::channel(1);
+    let srv_handle = tokio::spawn(async move {
+        server.run(shutdown_rx).await.unwrap();
+    });
+
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    let mut client = IpcClient::connect(&socket).await.unwrap();
+
+    // 1. Get config
+    let cfg_resp = client.get_config().await.unwrap();
+    match cfg_resp {
+        IpcData::ConfigView { config, path } => {
+            assert!(path.is_some());
+            assert_eq!(config["proxy"]["mode"], "Direct");
+            assert_eq!(config["logger"]["level"], "INFO");
+        }
+        other => panic!("expected ConfigView, got {other:?}"),
+    }
+
+    // 2. Set config key
+    let set_msg = client
+        .set_config_key("logger.level", "DEBUG")
+        .await
+        .unwrap();
+    assert!(set_msg.contains("Configuration updated"));
+
+    // 3. Verify in updated config view
+    let cfg_updated = client.get_config().await.unwrap();
+    match cfg_updated {
+        IpcData::ConfigView { config, .. } => {
+            assert_eq!(config["logger"]["level"], "DEBUG");
+        }
+        other => panic!("expected ConfigView, got {other:?}"),
+    }
+
+    // 4. Reload config
+    let reload_msg = client.reload_config().await.unwrap();
+    assert!(reload_msg.contains("Successfully reloaded"));
+
+    let _ = shutdown_tx.send(());
+    let _ = srv_handle.await;
+    let _ = std::fs::remove_file(&tmp_config);
+}

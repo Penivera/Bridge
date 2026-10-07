@@ -1,10 +1,11 @@
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
 use bridge::cluster::{ClusterController, PeerNode};
 use bridge::core::config::{FailbackMode, Service, ServiceReplicationConfig};
+#[cfg(feature = "dashboard")]
 use bridge::dashboard::DashboardServer;
 use bridge::failover::{MockContainerDriver, WorkloadDuplicator};
 use bridge::ipc::{IpcClient, IpcData, IpcServer};
@@ -13,7 +14,7 @@ use proxy::core::enums::ProxyMode;
 use proxy::ShutdownReason;
 use registry::{DomainRegistry, Node, Route};
 use tokio::net::UdpSocket;
-use tokio::sync::{broadcast, mpsc, RwLock};
+use tokio::sync::{broadcast, RwLock};
 use url::Url;
 
 /// Helper to create a test `ClusterController`.
@@ -245,6 +246,12 @@ async fn test_ipc_trigger_replication_and_failback() {
     let _ = shutdown_tx.send(ShutdownReason::Manual);
     let _ = std::fs::remove_file(socket_path);
 }
+
+#[cfg(feature = "dashboard")]
+mod dashboard_tests {
+    use super::*;
+    use std::net::SocketAddr;
+    use tokio::sync::mpsc;
 
 #[tokio::test]
 async fn test_dashboard_http_server_endpoints() {
@@ -543,3 +550,5 @@ async fn test_dashboard_metrics_and_logs_endpoints() {
 
     let _ = shutdown_tx.send(ShutdownReason::Manual);
 }
+}
+

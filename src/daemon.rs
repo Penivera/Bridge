@@ -70,6 +70,7 @@ pub async fn run(config_path: Option<&Path>) -> Result<(), Box<dyn std::error::E
     let auth_manager = Arc::new(crate::auth::AuthManager::new(&config.auth));
     let (ipc_cluster_slot, ipc_duplicator_slot) = if config.ipc.enabled {
         let (ipc_rx, ipc_ack) = coordinator.register_subsystem("ipc_server");
+        #[allow(unused_mut)]
         let mut ipc_server = crate::ipc::IpcServer::new(
             &config.ipc.socket_path,
             registry.clone(),
@@ -79,8 +80,9 @@ pub async fn run(config_path: Option<&Path>) -> Result<(), Box<dyn std::error::E
         let duplicator_slot = ipc_server.duplicator_handle();
         *ipc_server.auth_handle().write().await = Some(auth_manager.clone());
 
-        // 6. Register and spawn HTTP Dashboard if enabled (before IPC spawn so
+        // 6. Register and spawn HTTP Dashboard if enabled and compiled in (before IPC spawn so
         // both subsystems share the same configuration slots).
+        #[cfg(feature = "dashboard")]
         if config.dashboard.enabled {
             let (dash_rx, dash_ack) = coordinator.register_subsystem("dashboard");
             let dash_server = Arc::new(crate::dashboard::DashboardServer::new(
@@ -105,35 +107,47 @@ pub async fn run(config_path: Option<&Path>) -> Result<(), Box<dyn std::error::E
             });
         }
 
+        #[cfg(feature = "dashboard")]
+        let dashboard_running = config.dashboard.enabled;
+        #[cfg(not(feature = "dashboard"))]
+        let dashboard_running = false;
+
+        if !dashboard_running {
+            if let Some(config_view) = load_config_view(&config) {
+                *ipc_server.config_view_handle().write().await = Some(config_view);
+            }
+            if let Some(path) = config.loaded_from.clone() {
+                *ipc_server.config_path_handle().write().await = Some(path);
+            }
+        }
+
         tokio::spawn(async move {
             if let Err(err) = ipc_server.run_with_shutdown(ipc_rx, Some(ipc_ack)).await {
                 tracing::warn!(%err, "IPC server stopped with error");
             }
         });
         (cluster_slot, duplicator_slot)
-    } else if config.dashboard.enabled {
-        let (dash_rx, dash_ack) = coordinator.register_subsystem("dashboard");
-        let dash_server = Arc::new(crate::dashboard::DashboardServer::new(
-            config.dashboard.listen_addr,
-            registry.clone(),
-            Arc::new(tokio::sync::RwLock::new(None)),
-            Arc::new(tokio::sync::RwLock::new(None)),
-            auth_manager.clone(),
-        ));
-        dash_server.set_public_domain(config.dashboard.public_domain.clone());
-        if let Some(config_view) = load_config_view(&config) {
-            dash_server.set_config(config_view, config.loaded_from.clone());
-        }
-        tokio::spawn(async move {
-            if let Err(err) = dash_server.run_with_shutdown(dash_rx, Some(dash_ack)).await {
-                tracing::warn!(%err, "dashboard server stopped with error");
-            }
-        });
-        (
-            Arc::new(tokio::sync::RwLock::new(None)),
-            Arc::new(tokio::sync::RwLock::new(None)),
-        )
     } else {
+        #[cfg(feature = "dashboard")]
+        if config.dashboard.enabled {
+            let (dash_rx, dash_ack) = coordinator.register_subsystem("dashboard");
+            let dash_server = Arc::new(crate::dashboard::DashboardServer::new(
+                config.dashboard.listen_addr,
+                registry.clone(),
+                Arc::new(tokio::sync::RwLock::new(None)),
+                Arc::new(tokio::sync::RwLock::new(None)),
+                auth_manager.clone(),
+            ));
+            dash_server.set_public_domain(config.dashboard.public_domain.clone());
+            if let Some(config_view) = load_config_view(&config) {
+                dash_server.set_config(config_view, config.loaded_from.clone());
+            }
+            tokio::spawn(async move {
+                if let Err(err) = dash_server.run_with_shutdown(dash_rx, Some(dash_ack)).await {
+                    tracing::warn!(%err, "dashboard server stopped with error");
+                }
+            });
+        }
         (
             Arc::new(tokio::sync::RwLock::new(None)),
             Arc::new(tokio::sync::RwLock::new(None)),
@@ -355,7 +369,7 @@ pub fn apply_dashboard_ownership(
 /// Builds a JSON view of the raw configuration file for the dashboard's
 /// read-only config display. `Config` is not `Serialize`, so the source
 /// file it was loaded from is converted directly (TOML or YAML).
-fn load_config_view(config: &Config) -> Option<serde_json::Value> {
+pub fn load_config_view(config: &Config) -> Option<serde_json::Value> {
     let path = config.loaded_from.as_ref()?;
     let raw = match std::fs::read_to_string(path) {
         Ok(raw) => raw,
@@ -376,7 +390,8 @@ fn load_config_view(config: &Config) -> Option<serde_json::Value> {
     view
 }
 
-fn build_initial_routes(config: &Config, node_map: &HashMap<&String, &Node>) -> HashMap<String, Route> {    let mut routes: HashMap<String, Route> = HashMap::new();
+pub fn build_initial_routes(config: &Config, node_map: &HashMap<&String, &Node>) -> HashMap<String, Route> {
+    let mut routes: HashMap<String, Route> = HashMap::new();
     for service in &config.services {
         let Some(host) = service.url.host_str() else {
             tracing::warn!(url = %service.url, "service URL has no host");

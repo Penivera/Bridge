@@ -32,12 +32,56 @@ pub enum Commands {
         #[arg(short, long, default_value = "/tmp/bridge.sock")]
         socket: PathBuf,
     },
+    /// Run comprehensive health checks on the daemon, mesh, and backends
+    Health {
+        #[arg(short, long, default_value = "/tmp/bridge.sock")]
+        socket: PathBuf,
+    },
+    /// Print version, architecture, and feature build info
+    Version,
+    /// Inspect, validate, or reload daemon configuration
+    Config {
+        #[command(subcommand)]
+        command: ConfigCommands,
+    },
+    /// List cluster nodes and status (convenience alias)
+    Nodes {
+        #[arg(short, long, default_value = "/tmp/bridge.sock")]
+        socket: PathBuf,
+    },
+    /// Node operations and inspection
+    Node {
+        #[command(subcommand)]
+        command: NodeCommands,
+    },
+    /// Inspect WireGuard mesh interface and peers
+    Mesh {
+        #[command(subcommand)]
+        command: Option<MeshCommands>,
+        #[arg(short, long, default_value = "/tmp/bridge.sock")]
+        socket: PathBuf,
+    },
+    /// Inspect or trigger leader election
+    Election {
+        #[command(subcommand)]
+        command: Option<ElectionCommands>,
+        #[arg(short, long, default_value = "/tmp/bridge.sock")]
+        socket: PathBuf,
+    },
+    /// Ingress proxy engine status and routing statistics
+    Proxy {
+        #[command(subcommand)]
+        command: Option<ProxyCommands>,
+        #[arg(short, long, default_value = "/tmp/bridge.sock")]
+        socket: PathBuf,
+    },
     /// List active domain routes in the running Bridge daemon
     Routes {
         #[arg(short, long, default_value = "/tmp/bridge.sock")]
         socket: PathBuf,
     },
     /// Add a route dynamically via Unix domain socket
+    #[command(alias = "add_route")]
     AddRoute {
         /// Fully qualified domain name (e.g. app.example.com)
         domain: String,
@@ -51,6 +95,7 @@ pub enum Commands {
         socket: PathBuf,
     },
     /// Remove a route dynamically via Unix domain socket
+    #[command(alias = "remove_route")]
     RemoveRoute {
         /// Fully qualified domain name to remove
         domain: String,
@@ -96,6 +141,102 @@ pub enum Commands {
     User {
         #[command(subcommand)]
         command: UserCommands,
+    },
+}
+
+#[derive(Subcommand, Debug, Clone)]
+pub enum ConfigCommands {
+    /// Show active configuration from running daemon or file
+    Show {
+        #[arg(short, long, default_value = "/tmp/bridge.sock")]
+        socket: PathBuf,
+        /// Inspect file instead of running daemon
+        #[arg(long)]
+        file: Option<PathBuf>,
+        /// Output pretty-printed JSON
+        #[arg(short, long)]
+        json: bool,
+    },
+    /// Validate configuration file syntax and semantics
+    Validate {
+        /// Configuration file to validate (defaults to auto-discovery)
+        #[arg(short, long)]
+        config: Option<PathBuf>,
+    },
+    /// Reload configuration file on the running daemon
+    Reload {
+        #[arg(short, long, default_value = "/tmp/bridge.sock")]
+        socket: PathBuf,
+    },
+    /// Get a specific configuration key or section
+    Get {
+        /// Dotted key path (e.g. proxy.mode, logger.level, node.id)
+        key: String,
+        #[arg(short, long, default_value = "/tmp/bridge.sock")]
+        socket: PathBuf,
+    },
+    /// Set a configuration key value dynamically
+    Set {
+        /// Dotted key path (e.g. logger.level, dashboard.public_domain)
+        key: String,
+        /// New value
+        value: String,
+        #[arg(short, long, default_value = "/tmp/bridge.sock")]
+        socket: PathBuf,
+    },
+}
+
+#[derive(Subcommand, Debug, Clone)]
+pub enum NodeCommands {
+    /// List all nodes participating in the cluster
+    List {
+        #[arg(short, long, default_value = "/tmp/bridge.sock")]
+        socket: PathBuf,
+    },
+    /// Inspect a specific node by ID
+    Inspect {
+        /// Node ID (e.g. vm-01)
+        node_id: String,
+        #[arg(short, long, default_value = "/tmp/bridge.sock")]
+        socket: PathBuf,
+    },
+}
+
+#[derive(Subcommand, Debug, Clone)]
+pub enum MeshCommands {
+    /// Show WireGuard device status and interface settings
+    Status {
+        #[arg(short, long, default_value = "/tmp/bridge.sock")]
+        socket: PathBuf,
+    },
+    /// List WireGuard mesh peers and allowed IP routing
+    Peers {
+        #[arg(short, long, default_value = "/tmp/bridge.sock")]
+        socket: PathBuf,
+    },
+}
+
+#[derive(Subcommand, Debug, Clone)]
+pub enum ElectionCommands {
+    /// Show current leader election status, term, and candidate roles
+    Status {
+        #[arg(short, long, default_value = "/tmp/bridge.sock")]
+        socket: PathBuf,
+    },
+    /// Trigger an election cycle or leader step-down
+    #[command(alias = "step-down", alias = "step_down")]
+    Trigger {
+        #[arg(short, long, default_value = "/tmp/bridge.sock")]
+        socket: PathBuf,
+    },
+}
+
+#[derive(Subcommand, Debug, Clone)]
+pub enum ProxyCommands {
+    /// Show ingress proxy status, mode, and target routing counts
+    Status {
+        #[arg(short, long, default_value = "/tmp/bridge.sock")]
+        socket: PathBuf,
     },
 }
 
@@ -149,6 +290,298 @@ pub async fn execute_command(
             println!("{}", serde_json::to_string_pretty(&status)?);
             Ok(CommandOutcome::Exit)
         }
+        Commands::Health { socket } => {
+            let mut client = IpcClient::connect(&socket).await?;
+            let health = client.health().await?;
+            if let IpcData::HealthSummary {
+                system_health,
+                uptime_secs,
+                cluster_health,
+                local_node_id,
+                is_leader,
+                total_nodes,
+                healthy_nodes,
+                total_routes,
+                healthy_routes,
+                active_replicas,
+            } = health
+            {
+                let status_label = if system_health == "healthy" { "HEALTHY" } else { "DEGRADED" };
+                println!("BRIDGE SYSTEM HEALTH: {status_label}");
+                println!("{:-<50}", "");
+                println!("  Daemon Uptime:    {}", format_uptime(uptime_secs));
+                println!("  Cluster Status:   {} ({} node(s))", cluster_health, total_nodes);
+                if let Some(nid) = local_node_id {
+                    let role = if is_leader == Some(true) { "LEADER" } else { "FOLLOWER" };
+                    println!("  Local Node:       {} ({})", nid, role);
+                }
+                println!("  Healthy Nodes:    {}/{}", healthy_nodes, total_nodes);
+                println!("  Active Routes:    {}/{} healthy", healthy_routes, total_routes);
+                println!("  Active Replicas:  {}", active_replicas);
+            } else {
+                println!("{}", serde_json::to_string_pretty(&health)?);
+            }
+            Ok(CommandOutcome::Exit)
+        }
+        Commands::Version => {
+            println!("bridge {} ({})", env!("CARGO_PKG_VERSION"), std::env::consts::ARCH);
+            println!("Distributed, self-aware, fault-tolerant ingress daemon");
+            println!("  Overlay: WireGuard L3 point-to-point mesh");
+            println!("  Control: SWIM gossip membership + Bully leader election");
+            println!("  Data Plane: L7 Direct HTTP, L4 SNI Passthrough, Managed Coolify");
+            Ok(CommandOutcome::Exit)
+        }
+        Commands::Config { command } => match command {
+            ConfigCommands::Show { socket, file, json } => {
+                let val = if let Some(path) = file {
+                    let raw = std::fs::read_to_string(&path)?;
+                    let is_yaml = matches!(path.extension().and_then(|e| e.to_str()), Some("yaml" | "yml"));
+                    if is_yaml {
+                        serde_yaml::from_str::<serde_json::Value>(&raw)?
+                    } else {
+                        toml::from_str::<serde_json::Value>(&raw)?
+                    }
+                } else {
+                    let mut client = IpcClient::connect(&socket).await?;
+                    let resp = client.get_config().await?;
+                    if let IpcData::ConfigView { config, path } = resp {
+                        if let Some(p) = path {
+                            if !json {
+                                println!("# Configuration loaded from: {}", p);
+                            }
+                        }
+                        config
+                    } else {
+                        return Err("unexpected config response from daemon".into());
+                    }
+                };
+
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&val)?);
+                } else {
+                    let toml_str = toml::to_string_pretty(&val)?;
+                    println!("{}", toml_str);
+                }
+                Ok(CommandOutcome::Exit)
+            }
+            ConfigCommands::Validate { config } => {
+                match crate::core::config::Config::load_auto(config.as_deref()) {
+                    Ok(cfg) => {
+                        let path_str = cfg
+                            .loaded_from
+                            .as_ref()
+                            .map(|p| p.display().to_string())
+                            .unwrap_or_else(|| "default".to_string());
+                        println!("OK: Configuration at '{path_str}' is valid.");
+                        println!("  Proxy Mode:    {:?}", cfg.proxy.mode);
+                        println!("  Services:      {} registered", cfg.services.len());
+                        println!("  Nodes:         {} registered", cfg.nodes.len());
+                        if let Some(n) = &cfg.node {
+                            println!("  Local Mesh IP: {} (ID: {})", n.mesh_ip, n.id);
+                        } else {
+                            println!("  Cluster Mesh:  Standalone (no local node configured)");
+                        }
+                        Ok(CommandOutcome::Exit)
+                    }
+                    Err(err) => {
+                        eprintln!("ERROR: Invalid configuration: {err}");
+                        Err(err)
+                    }
+                }
+            }
+            ConfigCommands::Reload { socket } => {
+                let mut client = IpcClient::connect(&socket).await?;
+                let msg = client.reload_config().await?;
+                println!("SUCCESS: {msg}");
+                Ok(CommandOutcome::Exit)
+            }
+            ConfigCommands::Get { key, socket } => {
+                let mut client = IpcClient::connect(&socket).await?;
+                let resp = client.get_config().await?;
+                if let IpcData::ConfigView { config, .. } = resp {
+                    let parts: Vec<&str> = key.split('.').collect();
+                    let mut cur = &config;
+                    for part in parts {
+                        cur = &cur[part];
+                    }
+                    if cur.is_null() {
+                        println!("Key '{key}' not found or null");
+                    } else if let Some(s) = cur.as_str() {
+                        println!("{s}");
+                    } else {
+                        println!("{}", serde_json::to_string_pretty(cur)?);
+                    }
+                } else {
+                    println!("Unable to read configuration view");
+                }
+                Ok(CommandOutcome::Exit)
+            }
+            ConfigCommands::Set { key, value, socket } => {
+                let mut client = IpcClient::connect(&socket).await?;
+                let msg = client.set_config_key(&key, &value).await?;
+                println!("SUCCESS: {msg}");
+                Ok(CommandOutcome::Exit)
+            }
+        },
+        Commands::Nodes { socket } => {
+            let mut client = IpcClient::connect(&socket).await?;
+            let status = client.cluster_status().await?;
+            print_cluster_nodes(&status)?;
+            Ok(CommandOutcome::Exit)
+        }
+        Commands::Node { command } => match command {
+            NodeCommands::List { socket } => {
+                let mut client = IpcClient::connect(&socket).await?;
+                let status = client.cluster_status().await?;
+                print_cluster_nodes(&status)?;
+                Ok(CommandOutcome::Exit)
+            }
+            NodeCommands::Inspect { node_id, socket } => {
+                let mut client = IpcClient::connect(&socket).await?;
+                let status = client.cluster_status().await?;
+                if let IpcData::Cluster {
+                    local_node_id,
+                    current_leader,
+                    peers,
+                    ..
+                } = status
+                {
+                    if let Some(peer) = peers.iter().find(|p| p.node_id == node_id) {
+                        let is_self = peer.node_id == local_node_id;
+                        let is_lead = current_leader.as_deref() == Some(&peer.node_id);
+                        println!("NODE: {}{}", peer.node_id, if is_self { " (self)" } else { "" });
+                        println!("{:-<40}", "");
+                        println!("  Mesh IP:    {}", peer.mesh_ip);
+                        println!("  Endpoint:   {}", peer.endpoint);
+                        println!("  Role:       {}", if is_lead { "LEADER" } else { "PEER" });
+                        println!("  Priority:   {}", peer.priority);
+
+                        let routes = client.list_routes().await?;
+                        let hosted: Vec<_> = routes.into_iter().filter(|(_, r)| r.node_id == node_id).collect();
+                        println!("  Hosted Routes ({}):", hosted.len());
+                        for (dom, r) in hosted {
+                            println!("    - {:<28} (upstream: {:?}, state: {})", dom, r.upstream, r.health);
+                        }
+                    } else {
+                        println!("Node '{node_id}' not found in cluster.");
+                    }
+                }
+                Ok(CommandOutcome::Exit)
+            }
+        },
+        Commands::Mesh { command, socket } => match command.unwrap_or(MeshCommands::Status { socket: socket.clone() }) {
+            MeshCommands::Status { socket } => {
+                let mut client = IpcClient::connect(&socket).await?;
+                let mesh = client.mesh_status().await?;
+                if let IpcData::MeshDevice {
+                    interface_name,
+                    mesh_ip,
+                    public_key,
+                    listen_port,
+                    peers_count,
+                    peers,
+                } = mesh
+                {
+                    println!("WIREGUARD L3 OVERLAY MESH");
+                    println!("{:-<60}", "");
+                    println!("  Interface:        {}", interface_name);
+                    println!("  Mesh IP:          {}", mesh_ip);
+                    println!("  Public Key:       {}", public_key);
+                    println!("  Listen Port:      {}", listen_port);
+                    println!("  Connected Peers:  {}", peers_count);
+                    if !peers.is_empty() {
+                        println!("\n{:<46} {:<24} {:<16}", "PEER PUBLIC KEY", "ENDPOINT", "ALLOWED IPS");
+                        println!("{:-<86}", "");
+                        for p in peers {
+                            let ep = p.endpoint.map(|e| e.to_string()).unwrap_or_else(|| "-".to_string());
+                            let ips = p.allowed_ips.join(", ");
+                            println!("{:<46} {:<24} {:<16}", p.public_key, ep, ips);
+                        }
+                    }
+                } else {
+                    println!("{}", serde_json::to_string_pretty(&mesh)?);
+                }
+                Ok(CommandOutcome::Exit)
+            }
+            MeshCommands::Peers { socket } => {
+                let mut client = IpcClient::connect(&socket).await?;
+                let mesh = client.mesh_status().await?;
+                if let IpcData::MeshDevice { peers, .. } = mesh {
+                    if peers.is_empty() {
+                        println!("No WireGuard peers connected.");
+                    } else {
+                        println!("{:<46} {:<24} {:<16} {:<10}", "PEER PUBLIC KEY", "ENDPOINT", "ALLOWED IPS", "KEEPALIVE");
+                        println!("{:-<96}", "");
+                        for p in peers {
+                            let ep = p.endpoint.map(|e| e.to_string()).unwrap_or_else(|| "-".to_string());
+                            let ips = p.allowed_ips.join(", ");
+                            println!("{:<46} {:<24} {:<16} {}s", p.public_key, ep, ips, p.persistent_keepalive);
+                        }
+                    }
+                }
+                Ok(CommandOutcome::Exit)
+            }
+        },
+        Commands::Election { command, socket } => match command.unwrap_or(ElectionCommands::Status { socket: socket.clone() }) {
+            ElectionCommands::Status { socket } => {
+                let mut client = IpcClient::connect(&socket).await?;
+                let info = client.election_status().await?;
+                if let IpcData::ElectionInfo {
+                    current_leader,
+                    term,
+                    role,
+                    quorum_required,
+                    total_known_nodes,
+                    acks_count,
+                    is_leader,
+                } = info
+                {
+                    println!("BULLY LEADER ELECTION");
+                    println!("{:-<50}", "");
+                    let lead_str = current_leader.unwrap_or_else(|| "None (Electing)".to_string());
+                    println!("  Current Leader:     {} {}", lead_str, if is_leader { "(self)" } else { "" });
+                    println!("  Election Term:      {}", term);
+                    println!("  Local Role:         {}", role);
+                    println!("  Total Known Nodes:  {}", total_known_nodes);
+                    println!("  Quorum Required:    {}", quorum_required);
+                    println!("  Coordinator Acks:   {}", acks_count);
+                } else {
+                    println!("{}", serde_json::to_string_pretty(&info)?);
+                }
+                Ok(CommandOutcome::Exit)
+            }
+            ElectionCommands::Trigger { socket } => {
+                let mut client = IpcClient::connect(&socket).await?;
+                let msg = client.trigger_election().await?;
+                println!("SUCCESS: {msg}");
+                Ok(CommandOutcome::Exit)
+            }
+        },
+        Commands::Proxy { command, socket } => match command.unwrap_or(ProxyCommands::Status { socket: socket.clone() }) {
+            ProxyCommands::Status { socket } => {
+                let mut client = IpcClient::connect(&socket).await?;
+                let p = client.proxy_status().await?;
+                if let IpcData::ProxyStatus {
+                    mode,
+                    routes_count,
+                    healthy_routes,
+                    dead_routes,
+                    uptime_secs,
+                } = p
+                {
+                    println!("INGRESS PROXY ENGINE");
+                    println!("{:-<50}", "");
+                    println!("  Proxy Mode:       {}", mode);
+                    println!("  Uptime:           {}", format_uptime(uptime_secs));
+                    println!("  Total Routes:     {}", routes_count);
+                    println!("  Healthy Routes:   {}", healthy_routes);
+                    println!("  Dead Routes:      {}", dead_routes);
+                } else {
+                    println!("{}", serde_json::to_string_pretty(&p)?);
+                }
+                Ok(CommandOutcome::Exit)
+            }
+        },
         Commands::Routes { socket } => {
             let mut client = IpcClient::connect(&socket).await?;
             let routes = client.list_routes().await?;
@@ -376,4 +809,58 @@ fn prompt_password(prompt: &str) -> Result<String, Box<dyn std::error::Error>> {
     let mut line = String::new();
     std::io::stdin().read_line(&mut line)?;
     Ok(line.trim_end_matches(['\r', '\n']).to_string())
+}
+
+fn format_uptime(secs: u64) -> String {
+    let days = secs / 86400;
+    let hours = (secs % 86400) / 3600;
+    let mins = (secs % 3600) / 60;
+    let s = secs % 60;
+    if days > 0 {
+        format!("{days}d {hours}h {mins}m {s}s")
+    } else if hours > 0 {
+        format!("{hours}h {mins}m {s}s")
+    } else if mins > 0 {
+        format!("{mins}m {s}s")
+    } else {
+        format!("{s}s")
+    }
+}
+
+fn print_cluster_nodes(status: &IpcData) -> Result<(), Box<dyn std::error::Error>> {
+    if let IpcData::Cluster {
+        local_node_id,
+        current_leader,
+        is_leader,
+        peers,
+    } = status
+    {
+        let leader_str = current_leader.as_deref().unwrap_or("None");
+        println!(
+            "LOCAL NODE: {} ({}) | LEADER: {}",
+            local_node_id,
+            if *is_leader { "LEADER" } else { "FOLLOWER" },
+            leader_str
+        );
+        println!(
+            "\n{:<16} {:<18} {:<24} {:<12} {:<8}",
+            "NODE ID", "MESH IP", "ENDPOINT", "ROLE", "PRIORITY"
+        );
+        println!("{:-<80}", "");
+        for p in peers {
+            let role = if p.is_leader { "LEADER" } else { "PEER" };
+            let is_self = if &p.node_id == local_node_id { " (self)" } else { "" };
+            println!(
+                "{:<16} {:<18} {:<24} {:<12} {:<8}",
+                format!("{}{}", p.node_id, is_self),
+                p.mesh_ip,
+                p.endpoint,
+                role,
+                p.priority
+            );
+        }
+    } else {
+        println!("{}", serde_json::to_string_pretty(status)?);
+    }
+    Ok(())
 }
