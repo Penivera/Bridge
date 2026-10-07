@@ -197,6 +197,44 @@ pub fn generate_traefik_config(
         services.insert(name, service);
     }
 
+    // Ensure the dashboard router is present if dashboard_domain is configured,
+    // even if it has not yet been registered in the domain snapshot.
+    if let Some(dash_domain) = &config.dashboard_domain {
+        if !dash_domain.trim().is_empty() {
+            let base_name = sanitize_traefik_name(dash_domain);
+            if !routers.contains_key(&base_name) {
+                let url = config
+                    .dashboard_upstream
+                    .clone()
+                    .unwrap_or_else(|| "http://172.17.0.1:9090".to_string());
+
+                let tls = if config.tls_enabled {
+                    Some(TraefikTls {
+                        cert_resolver: config.cert_resolver.clone(),
+                    })
+                } else {
+                    None
+                };
+
+                let router = TraefikRouter {
+                    rule: traefik_host_rule(dash_domain),
+                    service: base_name.clone(),
+                    entry_points: config.entrypoints.clone(),
+                    tls,
+                };
+
+                let service = TraefikService {
+                    load_balancer: TraefikLoadBalancer {
+                        servers: vec![TraefikServer { url }],
+                    },
+                };
+
+                routers.insert(base_name.clone(), router);
+                services.insert(base_name, service);
+            }
+        }
+    }
+
     TraefikConfig {
         http: TraefikHttp { routers, services },
     }

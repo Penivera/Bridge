@@ -1,0 +1,209 @@
+# ==============================================================================
+# BRIDGE CONFIGURATION REFERENCE (bridge.toml)
+# ==============================================================================
+# Distributed ingress, self-healing WireGuard mesh, and workload failover
+# for modern multi-server infrastructure and Coolify clusters.
+#
+# Config Discovery Order:
+#   1. Explicit flag:   bridge --config /path/to/bridge.toml
+#   2. Environment var: BRIDGE_CONFIG=/path/to/bridge.toml
+#   3. Local directory: ./bridge.toml (or ./bridge.yaml)
+#   4. System standard: /etc/bridge/bridge.toml
+# ==============================================================================
+
+# Global telemetry reporting (anonymized error metrics). Disabled by default.
+enable_telemetry = false
+
+# ------------------------------------------------------------------------------
+# Logger Configuration
+# ------------------------------------------------------------------------------
+[logger]
+level = "INFO"        # TRACE | DEBUG | INFO | WARN | ERROR
+format = "text"       # "text" for human-readable output, "json" for structured logs
+target = "stderr"     # "stderr" or "stdout"
+ansi = true           # ANSI color output in console logs
+
+# ------------------------------------------------------------------------------
+# Ingress Proxy Settings
+# ------------------------------------------------------------------------------
+[proxy]
+# Operating Modes:
+#   "Managed" - Recommended for Coolify/Traefik setups. Bridge does not bind ports
+#               80/443; it dynamically manages Traefik's routing provider file.
+#   "Direct"  - L7 reverse proxy. Bridge binds ports 80/443 and terminates TLS.
+#   "Handoff" - L4 transparent passthrough with zero-copy TCP splicing & PROXY v2.
+mode = "Managed"
+
+# Default routing transport for target nodes:
+#   "Mesh"   - Route across the encrypted WireGuard overlay (10.8.0.x).
+#   "Direct" - Route directly across the public IP network.
+routing = "Mesh"
+
+# Maximum concurrency worker task ceiling (number or "auto" based on CPU cores)
+max_concurrency = "auto"
+
+# Listeners and bind addresses (used when mode = "Direct" or "Handoff")
+listeners = ["http", "https"]
+http_addr = "0.0.0.0:80"
+https_addr = "0.0.0.0:443"
+redirect_http = false      # When true, redirect HTTP (80) requests to HTTPS (443)
+
+# ------------------------------------------------------------------------------
+# Managed Mode Settings (Coolify / Traefik Dynamic Provider)
+# ------------------------------------------------------------------------------
+[proxy.managed]
+# Path to Traefik dynamic config file. Auto-detects /data/coolify/proxy/dynamic/bridge.yaml
+# dynamic_config_path = "/data/coolify/proxy/dynamic/bridge.yaml"
+
+# Identifier of the local node; local container routes are skipped so Traefik
+# connects to local Docker containers directly without unnecessary hops.
+local_node_id = "node-01"
+
+# Traefik entrypoints to bind routers to (e.g. ["websecure"])
+entrypoints = ["websecure"]
+
+# Whether Traefik should generate TLS router rules
+tls_enabled = true
+
+# Traefik certificate resolver name (e.g. "letsencrypt")
+cert_resolver = "letsencrypt"
+
+# Default scheme for cross-node upstream targets ("http" or "https")
+default_target_scheme = "http"
+
+# Interval for syncing domain registry changes into Traefik's dynamic config
+sync_interval = "5s"
+
+# Public domain to expose the leader's dashboard through Traefik (optional)
+dashboard_domain = "bridge-dash.example.com"
+
+# Upstream address where Traefik reaches the dashboard from its container
+dashboard_upstream = "http://172.17.0.1:9090"
+
+# ------------------------------------------------------------------------------
+# Web Dashboard & Authentication
+# ------------------------------------------------------------------------------
+[dashboard]
+enabled = true
+# Local loopback (127.0.0.1:9090), host interface, or 0.0.0.0:9090 for container ingress
+listen_addr = "0.0.0.0:9090"
+
+# Optional public domain routed exclusively to the elected cluster leader
+public_domain = "bridge-dash.example.com"
+
+[auth]
+# When true, requests to the dashboard require session authentication.
+enabled = true
+
+# First-Run Web Setup Wizard:
+# If enabled = true and the [[auth.users]] array is omitted or empty, opening
+# the dashboard at /login will present an initial "Setup Admin Account" wizard.
+# The credentials you provide will be hashed with Argon2id and persisted here.
+#
+# Alternatively, pre-configure static users with Argon2 PHC password hashes:
+# [[auth.users]]
+# username = "admin"
+# password_hash = "$argon2id$v=19$m=65536,t=3,p=4$..."
+
+# ------------------------------------------------------------------------------
+# Unix Domain Socket IPC (Local CLI Control)
+# ------------------------------------------------------------------------------
+[ipc]
+enabled = true
+socket_path = "/tmp/bridge.sock"
+
+# ------------------------------------------------------------------------------
+# Docker Container Auto-Discovery
+# ------------------------------------------------------------------------------
+[discovery]
+enabled = true
+docker_socket = "/var/run/docker.sock"
+default_node_id = "node-01"   # Node ID assigned to routes discovered on this VM
+
+# ------------------------------------------------------------------------------
+# Cluster Identity & WireGuard Mesh Configuration
+# ------------------------------------------------------------------------------
+# (Omit the entire [node] block to run in standalone single-server mode)
+[node]
+id = "node-01"
+endpoint = "203.0.113.10:51820"   # Public IP & UDP port other nodes dial
+listen_port = 51820
+mesh_ip = "10.8.0.1"               # Unique IP on the 10.8.0.0/24 overlay mesh
+priority = 100                     # Bully election priority (higher wins leadership)
+
+# Optional static WireGuard keys; auto-generated Curve25519 pair if omitted
+# private_key = "BASE64_PRIVATE_KEY"
+# public_key = "BASE64_PUBLIC_KEY"
+
+# ------------------------------------------------------------------------------
+# Bootstrap Cluster Seeds
+# ------------------------------------------------------------------------------
+# Contact nodes used to join the mesh upon initial startup
+[[seeds]]
+id = "node-01"
+endpoint = "203.0.113.10:51820"
+public_key = "BASE64_SEED_PUBLIC_KEY"
+mesh_ip = "10.8.0.1"
+
+# ------------------------------------------------------------------------------
+# Known Fleet Nodes & Target Backends
+# ------------------------------------------------------------------------------
+[[nodes]]
+id = "node-01"
+endpoint = "203.0.113.10:80"
+mesh_endpoint = "10.8.0.1:80"
+
+[[nodes]]
+id = "node-02"
+endpoint = "203.0.113.11:80"
+mesh_endpoint = "10.8.0.2:80"
+
+# ------------------------------------------------------------------------------
+# Static Domain Services & Application Routing
+# ------------------------------------------------------------------------------
+[[services]]
+url = "https://app.example.com"
+node_id = "node-01"
+upstream = "127.0.0.1:3000"
+
+# Optional Workload Failover Duplication
+# When node-01 fails, this container workload is automatically spawned on a healthy peer.
+[services.replicate]
+enabled = true
+image = "myorg/api:v1.2.0"
+env = ["PORT=3000", "NODE_ENV=production"]
+container_port = 3000
+placement = "leader"                  # "ring" (hash ring successor), "leader", or explicit node_id
+failback_mode = "preemptive"          # "preemptive", "non_preemptive", or "manual"
+failback_cooldown_secs = 10           # Cooldown before migrating traffic back to recovered host
+
+# ------------------------------------------------------------------------------
+# Ingress Handoff & Leader Failover (Tiers 2 & 3)
+# ------------------------------------------------------------------------------
+[handoff]
+mode = "none"   # "none" | "dns" | "tunnel" | "floating_ip"
+
+# Tier 3a: Cloudflare Tunnel Dynamic Handoff
+# [handoff.tunnel]
+# token = "env:CF_TUNNEL_TOKEN"
+# warm_standby = false
+# binary_path = "cloudflared"
+
+# Tier 2: Cloudflare DNS Failover
+# [handoff.dns]
+# provider = "cloudflare"
+# zone_id = "YOUR_ZONE_ID"
+# record_name = "app.example.com"
+# api_token = "env:CF_API_TOKEN"
+# ttl = 60
+# proxied = false
+
+# ------------------------------------------------------------------------------
+# Optional Sentry Error Monitoring & Telemetry
+# ------------------------------------------------------------------------------
+[sentry]
+# dsn = "env:SENTRY_DSN"
+environment = "production"
+sample_rate = 1.0
+traces_sample_rate = 0.0
+debug = false

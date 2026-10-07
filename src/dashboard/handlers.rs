@@ -371,18 +371,144 @@ pub async fn handle_logout(
     Json(json!({ "authenticated": false }))
 }
 
-/// Reports the current session state for the UI.
+/// Reports the current session state and whether first-run setup is required.
 pub async fn handle_auth(
     State(server): State<Arc<DashboardServer>>,
     headers: axum::http::HeaderMap,
 ) -> Json<Value> {
+    let has_users = server.auth.has_users().await;
+    let auth_enabled = server.auth.enabled();
+    let setup_required = !has_users;
+
     if let Some(token) = crate::dashboard::session_token_from_headers(&headers)
         && let Some(username) = server.auth.validate(&token).await
     {
-        Json(json!({ "authenticated": true, "username": username }))
+        Json(json!({
+            "authenticated": true,
+            "username": username,
+            "auth_enabled": auth_enabled,
+            "has_users": has_users,
+            "setup_required": setup_required,
+        }))
     } else {
-        Json(json!({ "authenticated": false, "username": null }))
+        Json(json!({
+            "authenticated": false,
+            "username": null,
+            "auth_enabled": auth_enabled,
+            "has_users": has_users,
+            "setup_required": setup_required,
+        }))
     }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SetupPayload {
+    pub username: String,
+    pub password: String,
+}
+
+/// First-run setup endpoint: creates the initial administrator user when no users exist.
+pub async fn handle_setup(
+    State(server): State<Arc<DashboardServer>>,
+    payload: Result<Json<SetupPayload>, axum::extract::rejection::JsonRejection>,
+) -> Result<axum::response::Response, DashboardError> {
+    let Json(body) =
+        payload.map_err(|e| DashboardError::BadRequest(format!("invalid JSON body: {e}")))?;
+
+    // Setup wizard is ONLY permitted when no users exist yet.
+    if server.auth.has_users().await {
+        return Err(DashboardError::Conflict(
+            "dashboard administrator is already configured; initial setup is locked".into(),
+        ));
+    }
+
+    crate::auth::validate_username(&body.username)
+        .map_err(|e| DashboardError::Validation(e.to_string()))?;
+    crate::auth::validate_password(&body.password)
+        .map_err(|e| DashboardError::Validation(e.to_string()))?;
+
+    let hash = crate::auth::AuthManager::hash_password(&body.password)
+        .map_err(|e| DashboardError::Validation(e.to_string()))?;
+
+    server
+        .auth
+        .upsert_user(&body.username, hash.clone())
+        .await
+        .map_err(|e| DashboardError::Validation(e.to_string()))?;
+
+    // Enable authentication
+    server.auth.set_enabled(true);
+
+    // Persist user to configuration file if one is loaded
+    if let Some(path) = server.config_path.read().await.clone() {
+        let mut doc = {
+            let guard = server.config_json.read().await;
+            if let Some(view) = guard.as_ref() {
+                view.clone()
+            } else if let Ok(raw) = std::fs::read_to_string(&path) {
+                let is_yaml = matches!(
+                    path.extension().and_then(|e| e.to_str()),
+                    Some("yaml" | "yml")
+                );
+                if is_yaml {
+                    serde_yaml::from_str(&raw).unwrap_or_else(|_| serde_json::json!({}))
+                } else {
+                    toml::from_str(&raw).unwrap_or_else(|_| serde_json::json!({}))
+                }
+            } else {
+                serde_json::json!({})
+            }
+        };
+
+        let (updated, _) = crate::auth::apply_user_to_config_doc(doc, &body.username, &hash);
+        doc = updated;
+
+        let is_yaml = matches!(
+            path.extension().and_then(|e| e.to_str()),
+            Some("yaml" | "yml")
+        );
+        let serialized = if is_yaml {
+            serde_yaml::to_string(&doc).ok()
+        } else {
+            toml::to_string(&doc).ok()
+        };
+
+        if let Some(serialized) = serialized {
+            let tmp_path = path.with_extension("tmp");
+            if std::fs::write(&tmp_path, &serialized).is_ok() {
+                let _ = std::fs::rename(&tmp_path, &path);
+            }
+        }
+
+        *server.config_json.write().await = Some(doc);
+    }
+
+    // Automatically log in the new administrator
+    let token = server
+        .auth
+        .login(&body.username, &body.password)
+        .await
+        .map_err(|e| DashboardError::Internal(e.to_string()))?;
+
+    let cookie = format!(
+        "{}={}; HttpOnly; Path=/; SameSite=Lax; Max-Age={}",
+        crate::dashboard::SESSION_COOKIE,
+        token,
+        crate::auth::SESSION_TTL.as_secs()
+    );
+    let res_body = json!({ "success": true, "username": body.username }).to_string();
+    let mut response = axum::response::Response::new(axum::body::Body::from(res_body));
+    *response.status_mut() = axum::http::StatusCode::OK;
+    response.headers_mut().insert(
+        axum::http::header::SET_COOKIE,
+        axum::http::HeaderValue::from_str(&cookie)
+            .map_err(|e| DashboardError::Internal(e.to_string()))?,
+    );
+    response.headers_mut().insert(
+        axum::http::header::CONTENT_TYPE,
+        axum::http::HeaderValue::from_static("application/json"),
+    );
+    Ok(response)
 }
 
 pub async fn handle_metrics(State(server): State<Arc<DashboardServer>>) -> HandlerResult {

@@ -52,10 +52,12 @@ struct Session {
     expires_at: Instant,
 }
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
 /// Runtime authentication state: password-hash table plus in-memory sessions.
 #[derive(Clone)]
 pub struct AuthManager {
-    enabled: bool,
+    enabled: Arc<AtomicBool>,
     users: Arc<RwLock<HashMap<String, String>>>,
     sessions: Arc<RwLock<HashMap<String, Session>>>,
 }
@@ -70,7 +72,7 @@ impl AuthManager {
             .map(|u| (u.username.clone(), u.password_hash.clone()))
             .collect();
         Self {
-            enabled: config.enabled,
+            enabled: Arc::new(AtomicBool::new(config.enabled)),
             users: Arc::new(RwLock::new(users)),
             sessions: Arc::new(RwLock::new(HashMap::new())),
         }
@@ -78,7 +80,12 @@ impl AuthManager {
 
     /// Whether authentication is enforced for the dashboard.
     pub fn enabled(&self) -> bool {
-        self.enabled
+        self.enabled.load(Ordering::Relaxed)
+    }
+
+    /// Dynamically enable or disable dashboard authentication.
+    pub fn set_enabled(&self, enabled: bool) {
+        self.enabled.store(enabled, Ordering::Relaxed);
     }
 
     /// Whether at least one user is configured.

@@ -29,3 +29,5 @@ AGENTS.md
 GEMINI.md
 report_builder
 scratch/
+app-svr-03.toml
+*.server.toml

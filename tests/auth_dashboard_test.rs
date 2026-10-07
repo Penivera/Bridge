@@ -503,3 +503,98 @@ fn test_cli_user_subcommands_parse() {
         })
     ));
 }
+
+#[tokio::test]
+async fn test_dashboard_first_run_setup_wizard() {
+    let auth = Arc::new(AuthManager::new(&AuthConfig {
+        enabled: true,
+        users: vec![],
+    }));
+    let (base_url, shutdown_tx, _ack_rx) = spawn_auth_dashboard(auth).await;
+    let client = reqwest::Client::new();
+
+    // 1. Initial auth status reports setup is required
+    let auth_res = client
+        .get(format!("{base_url}/api/v1/auth"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(auth_res.status(), reqwest::StatusCode::OK);
+    let auth_json: serde_json::Value = auth_res.json().await.unwrap();
+    assert_eq!(auth_json["authenticated"], false);
+    assert_eq!(auth_json["has_users"], false);
+    assert_eq!(auth_json["setup_required"], true);
+
+    // 2. Login page HTML contains setup wizard elements
+    let login_page = client
+        .get(format!("{base_url}/login"))
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    assert!(login_page.contains("confirm-password"));
+    assert!(login_page.contains("/api/v1/setup"));
+
+    // 3. Setup with password too short (< 8 chars) fails with validation error
+    let invalid_setup = client
+        .post(format!("{base_url}/api/v1/setup"))
+        .json(&serde_json::json!({ "username": "admin", "password": "123" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(invalid_setup.status(), reqwest::StatusCode::UNPROCESSABLE_ENTITY);
+
+    // 4. Valid setup succeeds, creates admin, and sets session cookie
+    let valid_setup = client
+        .post(format!("{base_url}/api/v1/setup"))
+        .json(&serde_json::json!({ "username": "admin", "password": "supersecretpassword" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(valid_setup.status(), reqwest::StatusCode::OK);
+    let cookie_header = valid_setup
+        .headers()
+        .get("set-cookie")
+        .expect("set-cookie header present")
+        .to_str()
+        .unwrap()
+        .to_string();
+    let session_cookie = cookie_header.split(';').next().unwrap().to_string();
+    assert!(session_cookie.starts_with("bridge_session="));
+
+    // 5. Subsequent setup calls are rejected (conflict / locked)
+    let duplicate_setup = client
+        .post(format!("{base_url}/api/v1/setup"))
+        .json(&serde_json::json!({ "username": "hacker", "password": "supersecretpassword2" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(duplicate_setup.status(), reqwest::StatusCode::CONFLICT);
+
+    // 6. Authenticated session can access protected API endpoints
+    let auth_status = client
+        .get(format!("{base_url}/api/v1/auth"))
+        .header("cookie", &session_cookie)
+        .send()
+        .await
+        .unwrap()
+        .json::<serde_json::Value>()
+        .await
+        .unwrap();
+    assert_eq!(auth_status["authenticated"], true);
+    assert_eq!(auth_status["username"], "admin");
+    assert_eq!(auth_status["has_users"], true);
+    assert_eq!(auth_status["setup_required"], false);
+
+    let status_res = client
+        .get(format!("{base_url}/api/v1/status"))
+        .header("cookie", &session_cookie)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(status_res.status(), reqwest::StatusCode::OK);
+
+    let _ = shutdown_tx.send(ShutdownReason::Manual);
+}

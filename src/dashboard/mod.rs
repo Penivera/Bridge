@@ -154,6 +154,7 @@ impl DashboardServer {
             .route("/health", get(handlers::handle_health))
             .route("/healthz", get(handlers::handle_health))
             .route("/api/v1/login", post(handlers::handle_login))
+            .route("/api/v1/setup", post(handlers::handle_setup))
             .route("/api/v1/logout", post(handlers::handle_logout))
             .route("/api/v1/auth", get(handlers::handle_auth))
             .layer(TimeoutLayer::with_status_code(

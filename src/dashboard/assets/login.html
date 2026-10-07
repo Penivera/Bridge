@@ -108,13 +108,17 @@
     <div class="brand">BRIDGE</div>
     <div class="brand-sub">Distributed ingress infrastructure</div>
     <div class="panel">
-        <div class="panel-title">Sign in</div>
-        <div class="panel-hint">Authenticate against the local daemon.</div>
+        <div class="panel-title" id="panel-title">Sign in</div>
+        <div class="panel-hint" id="panel-hint">Authenticate against the local daemon.</div>
         <form id="login-form">
             <label for="username">Username</label>
             <input id="username" name="username" type="text" autocomplete="username" required autofocus>
             <label for="password">Password</label>
             <input id="password" name="password" type="password" autocomplete="current-password" required>
+            <div id="confirm-password-container" style="display: none;">
+                <label for="confirm-password">Confirm Password</label>
+                <input id="confirm-password" name="confirm-password" type="password" autocomplete="new-password">
+            </div>
             <button id="submit" type="submit">Sign in</button>
             <div class="error" id="error">Invalid username or password.</div>
         </form>
@@ -125,26 +129,68 @@
             var form = document.getElementById('login-form');
             var error = document.getElementById('error');
             var submit = document.getElementById('submit');
+            var title = document.getElementById('panel-title');
+            var hint = document.getElementById('panel-hint');
+            var confirmContainer = document.getElementById('confirm-password-container');
+            var confirmInput = document.getElementById('confirm-password');
+            var isSetupMode = false;
+
+            // Check if first-run setup is required
+            fetch('/api/v1/auth')
+                .then(function (res) { return res.json(); })
+                .then(function (data) {
+                    if (data && data.setup_required) {
+                        isSetupMode = true;
+                        document.title = 'Setup // BRIDGE';
+                        title.textContent = 'Setup Admin Account';
+                        hint.textContent = 'Welcome to BRIDGE. Create your initial administrator credentials.';
+                        confirmContainer.style.display = 'block';
+                        confirmInput.required = true;
+                        submit.textContent = 'Create Account & Sign In';
+                    }
+                })
+                .catch(function () {});
+
             form.addEventListener('submit', async function (e) {
                 e.preventDefault();
                 error.classList.remove('visible');
+                error.textContent = '';
+                var u = document.getElementById('username').value.trim();
+                var p = document.getElementById('password').value;
+
+                if (isSetupMode) {
+                    var cp = confirmInput.value;
+                    if (p !== cp) {
+                        error.textContent = 'Passwords do not match.';
+                        error.classList.add('visible');
+                        return;
+                    }
+                    if (p.length < 8) {
+                        error.textContent = 'Password must be at least 8 characters.';
+                        error.classList.add('visible');
+                        return;
+                    }
+                }
+
                 submit.disabled = true;
                 try {
-                    var res = await fetch('/api/v1/login', {
+                    var endpoint = isSetupMode ? '/api/v1/setup' : '/api/v1/login';
+                    var res = await fetch(endpoint, {
                         method: 'POST',
                         headers: { 'content-type': 'application/json' },
-                        body: JSON.stringify({
-                            username: document.getElementById('username').value,
-                            password: document.getElementById('password').value,
-                        }),
+                        body: JSON.stringify({ username: u, password: p }),
                     });
                     if (res.status === 200) {
                         window.location.href = '/';
                     } else {
+                        var body = {};
+                        try { body = await res.json(); } catch (_) {}
+                        error.textContent = body.error || (isSetupMode ? 'Setup failed.' : 'Invalid username or password.');
                         error.classList.add('visible');
                         submit.disabled = false;
                     }
                 } catch (err) {
+                    error.textContent = 'Connection error. Please try again.';
                     error.classList.add('visible');
                     submit.disabled = false;
                 }

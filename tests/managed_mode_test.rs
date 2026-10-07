@@ -411,3 +411,29 @@ fn test_internal_node_records_excluded_from_traefik_config() {
     assert!(generated.http.routers.is_empty());
     assert!(generated.http.services.is_empty());
 }
+
+#[test]
+fn test_dashboard_domain_router_generation_in_traefik_config() {
+    let registry = Arc::new(DomainRegistry::new());
+    let config = ManagedConfig {
+        local_node_id: "app-svr-03".to_string(),
+        dashboard_domain: Some("bridge-dash.usebantr.site".to_string()),
+        dashboard_upstream: Some("http://172.17.0.1:9090".to_string()),
+        entrypoints: vec!["websecure".to_string()],
+        tls_enabled: true,
+        cert_resolver: Some("letsencrypt".to_string()),
+        ..Default::default()
+    };
+
+    let generated = proxy::managed::generate_traefik_config(&registry, RoutingPreference::Mesh, &config);
+    let router_name = "bridge-bridge-dash-usebantr-site";
+    let router = generated.http.routers.get(router_name).expect("dashboard router generated");
+    assert_eq!(router.rule, "Host(`bridge-dash.usebantr.site`)");
+    assert_eq!(router.entry_points, vec!["websecure"]);
+    assert!(router.tls.is_some());
+    assert_eq!(router.tls.as_ref().unwrap().cert_resolver.as_deref(), Some("letsencrypt"));
+
+    let service = generated.http.services.get(router_name).expect("dashboard service generated");
+    assert_eq!(service.load_balancer.servers[0].url, "http://172.17.0.1:9090");
+}
+

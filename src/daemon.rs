@@ -416,6 +416,9 @@ pub fn build_initial_routes(config: &Config, node_map: &HashMap<&String, &Node>)
 fn configure_proxy_and_udp(config: &Config, node_map: &HashMap<&String, &Node>) -> ProxyConfig {
     let mut proxy_config = config.proxy.clone();
     proxy_config.udp_services.extend(config.udp_services.clone());
+    if proxy_config.managed.dashboard_domain.is_none() {
+        proxy_config.managed.dashboard_domain = config.dashboard.public_domain.clone();
+    }
 
     for udp_service in &mut proxy_config.udp_services {
         if udp_service.node_id != "self" {

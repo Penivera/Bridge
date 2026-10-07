@@ -59,55 +59,167 @@
       <h2 id="reference">Full reference</h2>
       <div class="codeblock">
         <button class="copy-btn" type="button" data-copy-target="#full-config">Copy</button>
-<pre id="full-config"><code>enable_telemetry = false
+<pre id="full-config"><code><span class="c"># ==============================================================================</span>
+<span class="c"># BRIDGE CONFIGURATION REFERENCE (bridge.toml)</span>
+<span class="c"># ==============================================================================</span>
 
+<span class="c"># Global telemetry reporting (anonymized error metrics). Disabled by default.</span>
+enable_telemetry = false
+
+<span class="c"># ------------------------------------------------------------------------------</span>
+<span class="c"># Logger Configuration</span>
+<span class="c"># ------------------------------------------------------------------------------</span>
+[logger]
+level = "INFO"        <span class="c"># TRACE | DEBUG | INFO | WARN | ERROR</span>
+format = "text"       <span class="c"># "text" for human-readable output, "json" for structured logs</span>
+target = "stderr"     <span class="c"># "stderr" or "stdout"</span>
+ansi = true           <span class="c"># ANSI color output in console logs</span>
+
+<span class="c"># ------------------------------------------------------------------------------</span>
+<span class="c"># Ingress Proxy Settings</span>
+<span class="c"># ------------------------------------------------------------------------------</span>
 [proxy]
-mode = "Direct"            <span class="c"># Direct | SniPassthrough | Managed</span>
-listeners = ["http"]
-http_addr = "0.0.0.0:80"
+<span class="c"># Operating Modes:</span>
+<span class="c">#   "Managed" - Recommended for Coolify/Traefik. Bridge manages dynamic routes.</span>
+<span class="c">#   "Direct"  - L7 reverse proxy. Bridge binds ports 80/443 and terminates TLS.</span>
+<span class="c">#   "Handoff" - L4 transparent passthrough with zero-copy TCP splicing &amp; PROXY v2.</span>
+mode = "Managed"
 
+<span class="c"># Target routing transport: "Mesh" (WireGuard overlay 10.8.0.x) or "Direct" (public IP)</span>
+routing = "Mesh"
+
+<span class="c"># Maximum concurrency worker task ceiling (number or "auto" based on CPU cores)</span>
+max_concurrency = "auto"
+
+<span class="c"># Listeners and bind addresses (used when mode = "Direct" or "Handoff")</span>
+listeners = ["http", "https"]
+http_addr = "0.0.0.0:80"
+https_addr = "0.0.0.0:443"
+redirect_http = false      <span class="c"># Redirect port 80 traffic to port 443</span>
+
+<span class="c"># ------------------------------------------------------------------------------</span>
+<span class="c"># Managed Mode Settings (Coolify / Traefik Dynamic Provider)</span>
+<span class="c"># ------------------------------------------------------------------------------</span>
+[proxy.managed]
+<span class="c"># Path to Traefik dynamic file (auto-detects /data/coolify/proxy/dynamic/bridge.yaml)</span>
+<span class="c"># dynamic_config_path = "/data/coolify/proxy/dynamic/bridge.yaml"</span>
+
+local_node_id = "node-01"            <span class="c"># Local routes skipped to let Traefik hit local containers directly</span>
+entrypoints = ["websecure"]          <span class="c"># Traefik entrypoints to bind routers to</span>
+tls_enabled = true                   <span class="c"># Generate TLS router rules in Traefik</span>
+cert_resolver = "letsencrypt"        <span class="c"># Traefik certificate resolver name</span>
+default_target_scheme = "http"       <span class="c"># Target scheme for cross-node upstream servers</span>
+sync_interval = "5s"                 <span class="c"># Interval for syncing domain registry to Traefik</span>
+dashboard_domain = "bridge-dash.example.com"  <span class="c"># Optional public dashboard domain</span>
+dashboard_upstream = "http://172.17.0.1:9090" <span class="c"># Host URL reachable from Traefik container</span>
+
+<span class="c"># ------------------------------------------------------------------------------</span>
+<span class="c"># Embedded Web Dashboard &amp; Authentication</span>
+<span class="c"># ------------------------------------------------------------------------------</span>
 [dashboard]
 enabled = true
-listen_addr = "127.0.0.1:9090"
+listen_addr = "0.0.0.0:9090"         <span class="c"># Bind address (use 127.0.0.1:9090 for loopback only)</span>
+public_domain = "bridge-dash.example.com" <span class="c"># Optional leader-only public domain</span>
 
+[auth]
+enabled = true                       <span class="c"># Enforce authentication for the dashboard</span>
+
+<span class="c"># First-Run Setup Wizard: when enabled = true and [[auth.users]] is omitted,</span>
+<span class="c"># the web UI at /login automatically presents an initial admin setup wizard.</span>
+<span class="c"># Alternatively, pre-configure static users with Argon2 hashes:</span>
+<span class="c"># [[auth.users]]</span>
+<span class="c"># username = "admin"</span>
+<span class="c"># password_hash = "$argon2id$v=19$m=65536,t=3,p=4$..."</span>
+
+<span class="c"># ------------------------------------------------------------------------------</span>
+<span class="c"># Unix Domain Socket IPC (Local CLI Control)</span>
+<span class="c"># ------------------------------------------------------------------------------</span>
+[ipc]
+enabled = true
+socket_path = "/tmp/bridge.sock"
+
+<span class="c"># ------------------------------------------------------------------------------</span>
+<span class="c"># Docker Container Auto-Discovery</span>
+<span class="c"># ------------------------------------------------------------------------------</span>
 [discovery]
 enabled = true
 docker_socket = "/var/run/docker.sock"
 default_node_id = "node-01"
 
-[ipc]
-enabled = true
-socket_path = "/tmp/bridge.sock"
-
-[logger]
-level = "INFO"
-format = "text"
-
-<span class="c"># This node's cluster identity (optional, omit for standalone)</span>
+<span class="c"># ------------------------------------------------------------------------------</span>
+<span class="c"># Cluster Identity &amp; WireGuard Mesh Configuration</span>
+<span class="c"># ------------------------------------------------------------------------------</span>
+<span class="c"># (Omit the [node] block for standalone single-server mode)</span>
 [node]
 id = "node-01"
-mesh_ip = "10.8.0.1"
-endpoint = "203.0.113.10:51820"
-listen_port = 51820
-priority = 100
+endpoint = "203.0.113.10:51820"     <span class="c"># Public endpoint peers dial</span>
+listen_port = 51820                 <span class="c"># WireGuard listen port</span>
+mesh_ip = "10.8.0.1"                <span class="c"># Address on the 10.8.0.0/24 overlay mesh</span>
+priority = 100                      <span class="c"># Bully election priority (highest wins leadership)</span>
 
+<span class="c"># ------------------------------------------------------------------------------</span>
+<span class="c"># Bootstrap Cluster Seeds</span>
+<span class="c"># ------------------------------------------------------------------------------</span>
 [[seeds]]
-endpoint = "203.0.113.11:51820"
+id = "node-01"
+endpoint = "203.0.113.10:51820"
+public_key = "BASE64_PUBLIC_KEY"
+mesh_ip = "10.8.0.1"
+
+<span class="c"># ------------------------------------------------------------------------------</span>
+<span class="c"># Known Fleet Nodes &amp; Target Backends</span>
+<span class="c"># ------------------------------------------------------------------------------</span>
+[[nodes]]
+id = "node-01"
+endpoint = "203.0.113.10:80"
+mesh_endpoint = "10.8.0.1:80"
 
 [[nodes]]
-node_id = "node-01"
-endpoint = "203.0.113.10:51820"
+id = "node-02"
+endpoint = "203.0.113.11:80"
+mesh_endpoint = "10.8.0.2:80"
 
+<span class="c"># ------------------------------------------------------------------------------</span>
+<span class="c"># Static Domain Services &amp; Application Routing</span>
+<span class="c"># ------------------------------------------------------------------------------</span>
 [[services]]
 url = "https://app.example.com"
 node_id = "node-01"
 upstream = "127.0.0.1:3000"
 
-[handoff]
-mode = "tunnel"            <span class="c"># none | dns | tunnel | floating_ip</span>
+<span class="c"># Workload Failover Duplication</span>
+[services.replicate]
+enabled = true
+image = "myorg/api:v1.2.0"
+env = ["PORT=3000", "NODE_ENV=production"]
+container_port = 3000
+placement = "leader"                <span class="c"># "ring" | "leader" | explicit node_id</span>
+failback_mode = "preemptive"        <span class="c"># "preemptive" | "non_preemptive" | "manual"</span>
+failback_cooldown_secs = 10         <span class="c"># Flapping prevention cooldown</span>
 
-[handoff.tunnel]
-<span class="c"># Cloudflare Tunnel credentials go here when mode = "tunnel"</span></code></pre>
+<span class="c"># ------------------------------------------------------------------------------</span>
+<span class="c"># Ingress Handoff &amp; Failover (Tiers 2 &amp; 3)</span>
+<span class="c"># ------------------------------------------------------------------------------</span>
+[handoff]
+mode = "none"                       <span class="c"># "none" | "dns" | "tunnel" | "floating_ip"</span>
+
+<span class="c"># [handoff.tunnel]</span>
+<span class="c"># token = "env:CF_TUNNEL_TOKEN"</span>
+<span class="c"># warm_standby = false</span>
+
+<span class="c"># [handoff.dns]</span>
+<span class="c"># provider = "cloudflare"</span>
+<span class="c"># zone_id = "YOUR_ZONE_ID"</span>
+<span class="c"># record_name = "app.example.com"</span>
+<span class="c"># api_token = "env:CF_API_TOKEN"</span>
+
+<span class="c"># ------------------------------------------------------------------------------</span>
+<span class="c"># Optional Sentry Error Monitoring</span>
+<span class="c"># ------------------------------------------------------------------------------</span>
+[sentry]
+<span class="c"># dsn = "env:SENTRY_DSN"</span>
+environment = "production"
+sample_rate = 1.0</code></pre>
       </div>
 
       <h2 id="sections">Sections</h2>
@@ -127,9 +239,32 @@ mode = "tunnel"            <span class="c"># none | dns | tunnel | floating_ip</
         <table>
           <thead><tr><th>Key</th><th>Type</th><th>Description</th></tr></thead>
           <tbody>
-            <tr><td><code>mode</code></td><td>string</td><td><code>Direct</code> (L7 HTTP reverse proxy per hostname), <code>SniPassthrough</code> (L4, TLS terminates on backends), or <code>Managed</code> (delegate to an existing Coolify install).</td></tr>
-            <tr><td><code>listeners</code></td><td>array</td><td>Listener kinds to enable, e.g. <code>["http"]</code>.</td></tr>
+            <tr><td><code>mode</code></td><td>string</td><td><code>Managed</code> (dynamically configures Traefik / Coolify), <code>Direct</code> (L7 HTTP reverse proxy with TLS), or <code>Handoff</code> (L4 transparent passthrough with zero-copy TCP splice).</td></tr>
+            <tr><td><code>routing</code></td><td>string</td><td>Target transport preference: <code>Mesh</code> (WireGuard overlay 10.8.0.x) or <code>Direct</code> (public IP). Default <code>Mesh</code>.</td></tr>
+            <tr><td><code>max_concurrency</code></td><td>number | string</td><td>Worker concurrency ceiling (number or <code>"auto"</code>). Default 20.</td></tr>
+            <tr><td><code>listeners</code></td><td>array</td><td>Listener kinds to enable in Direct/Handoff modes, e.g. <code>["http", "https"]</code>.</td></tr>
             <tr><td><code>http_addr</code></td><td>string</td><td>Bind address for HTTP ingress, e.g. <code>0.0.0.0:80</code>.</td></tr>
+            <tr><td><code>https_addr</code></td><td>string</td><td>Bind address for HTTPS ingress, e.g. <code>0.0.0.0:443</code>.</td></tr>
+            <tr><td><code>redirect_http</code></td><td>boolean</td><td>Redirect HTTP to HTTPS when both listeners are active.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>[proxy.managed]</h3>
+      <p>Settings for Mode 3: Managed Mode (Coolify / Traefik dynamic configuration provider).</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Key</th><th>Type</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>local_node_id</code></td><td>string</td><td>Identifier of this node; local container routes are skipped so Traefik contacts them directly.</td></tr>
+            <tr><td><code>dynamic_config_path</code></td><td>string</td><td>Path to Traefik dynamic YAML file (auto-detects <code>/data/coolify/proxy/dynamic/bridge.yaml</code>).</td></tr>
+            <tr><td><code>entrypoints</code></td><td>array</td><td>Traefik entrypoints to bind routers to, e.g. <code>["websecure"]</code>.</td></tr>
+            <tr><td><code>tls_enabled</code></td><td>boolean</td><td>Generate TLS router configuration in Traefik. Default <code>true</code>.</td></tr>
+            <tr><td><code>cert_resolver</code></td><td>string</td><td>Traefik certificate resolver name, e.g. <code>"letsencrypt"</code>.</td></tr>
+            <tr><td><code>default_target_scheme</code></td><td>string</td><td>Target scheme for cross-node upstream servers (<code>"http"</code> or <code>"https"</code>).</td></tr>
+            <tr><td><code>sync_interval</code></td><td>string</td><td>Interval for synchronizing registry updates into Traefik's dynamic file, e.g. <code>"5s"</code>.</td></tr>
+            <tr><td><code>dashboard_domain</code></td><td>string</td><td>Optional public domain to expose the leader's dashboard through Traefik.</td></tr>
+            <tr><td><code>dashboard_upstream</code></td><td>string</td><td>Explicit server URL for Traefik to reach the dashboard container/host, e.g. <code>"http://172.17.0.1:9090"</code>.</td></tr>
           </tbody>
         </table>
       </div>
@@ -139,8 +274,21 @@ mode = "tunnel"            <span class="c"># none | dns | tunnel | floating_ip</
         <table>
           <thead><tr><th>Key</th><th>Type</th><th>Description</th></tr></thead>
           <tbody>
-            <tr><td><code>enabled</code></td><td>boolean</td><td>Serve the embedded operations dashboard.</td></tr>
-            <tr><td><code>listen_addr</code></td><td>string</td><td>Default <code>127.0.0.1:9090</code>: loopback only unless changed.</td></tr>
+            <tr><td><code>enabled</code></td><td>boolean</td><td>Serve the embedded operations dashboard. Default <code>true</code>.</td></tr>
+            <tr><td><code>listen_addr</code></td><td>string</td><td>Bind address, e.g. <code>0.0.0.0:9090</code> or <code>127.0.0.1:9090</code> (loopback only).</td></tr>
+            <tr><td><code>public_domain</code></td><td>string</td><td>Optional public domain routed exclusively to the currently elected cluster leader.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>[auth]</h3>
+      <p>Authentication settings for the embedded dashboard.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Key</th><th>Type</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>enabled</code></td><td>boolean</td><td>Enforce authentication for dashboard endpoints and UI. Default <code>false</code>.</td></tr>
+            <tr><td><code>users</code></td><td>array</td><td>Array of user tables with <code>username</code> and Argon2 PHC <code>password_hash</code>. When <code>enabled = true</code> and <code>users</code> is omitted or empty, the First-Run Web Setup Wizard automatically launches at <code>/login</code> to initialize the admin credentials.</td></tr>
           </tbody>
         </table>
       </div>
