@@ -722,6 +722,149 @@ impl ClusterController {
         }
     }
 
+    /// Administratively force-specifies a cluster leader.
+    ///
+    /// If `target_node_id` is the local node, it assumes leadership immediately,
+    /// increments the election term, and broadcasts a `Coordinator` announcement to all peers.
+    ///
+    /// If `target_node_id` is a known peer, this node designates that peer as leader,
+    /// increments its term, and broadcasts a `Coordinator` announcement across the fleet.
+    pub async fn force_leader(&self, target_node_id: &str) -> Result<(PeerNode, u64), Box<dyn std::error::Error + Send + Sync>> {
+        let (leader_node, new_term, peer_endpoints) = {
+            let mut state = self.election_state.write().await;
+            let term = state.term + 1;
+            state.term = term;
+
+            let peers = self.peers.read().await;
+            let target = if target_node_id == self.local_node.node_id {
+                state.role = ElectionRole::Leader;
+                state.current_leader = Some(self.local_node.clone());
+                let _ = self.leader_tx.send(Some(self.local_node.clone()));
+                self.local_node.clone()
+            } else if let Some(peer) = peers.get(target_node_id) {
+                state.role = ElectionRole::Follower;
+                state.current_leader = Some(peer.clone());
+                let _ = self.leader_tx.send(Some(peer.clone()));
+                peer.clone()
+            } else {
+                return Err(format!("Target node '{target_node_id}' not found in cluster peers").into());
+            };
+
+            let endpoints: Vec<SocketAddr> = peers.values().map(|p| p.endpoint).collect();
+            (target, term, endpoints)
+        };
+
+        // Broadcast Coordinator declaration across the fleet
+        let msg = ClusterMessage::Coordinator {
+            leader: leader_node.clone(),
+            term: new_term,
+        };
+        let encoded = msg.encode()?;
+        for ep in &peer_endpoints {
+            let _ = self.socket.send_to(&encoded, *ep).await;
+        }
+
+        tracing::warn!(
+            forced_leader = %leader_node.node_id,
+            term = new_term,
+            "administratively forced cluster leader"
+        );
+        Ok((leader_node, new_term))
+    }
+
+    /// Administratively steps down from leadership, triggering an election among remaining nodes.
+    pub async fn step_down(&self) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        let is_leader = self.is_leader().await;
+        if !is_leader {
+            return Ok(false);
+        }
+
+        let (new_term, endpoints) = {
+            let mut state = self.election_state.write().await;
+            state.term += 1;
+            state.role = ElectionRole::Follower;
+            state.current_leader = None;
+            let _ = self.leader_tx.send(None);
+            let peers = self.peers.read().await;
+            let eps: Vec<SocketAddr> = peers.values().map(|p| p.endpoint).collect();
+            (state.term, eps)
+        };
+
+        tracing::info!(term = new_term, "local leader stepped down; notifying peers to elect new leader");
+        let election_msg = ClusterMessage::Election {
+            from_node: self.local_node.node_id.clone(),
+            term: new_term,
+            priority: 0,
+        };
+        if let Ok(encoded) = election_msg.encode() {
+            for ep in endpoints {
+                let _ = self.socket.send_to(&encoded, ep).await;
+            }
+        }
+
+        Ok(true)
+    }
+
+    /// Administratively drops a node from the cluster and mesh.
+    ///
+    /// Evicts the peer from known cluster peers, unprograms its WireGuard peer interface,
+    /// removes associated routes from the registry, and emits `MemberEvent::Down`.
+    pub async fn drop_node(&self, target_node_id: &str) -> Result<PeerNode, Box<dyn std::error::Error + Send + Sync>> {
+        if target_node_id == self.local_node.node_id {
+            return Err("Cannot drop local node from itself; stop the Bridge daemon service instead".into());
+        }
+
+        let removed = self.unregister_peer_internal(target_node_id).await;
+        match removed {
+            Some(peer) => {
+                let _ = self.membership_tx.send(MemberEvent::Down(peer.clone()));
+
+                // Remove any routes whose target was this node
+                let snapshot = self.registry.snapshot();
+                for (domain, route) in snapshot.iter() {
+                    if route.node.node_id == target_node_id {
+                        self.registry.remove(domain);
+                        tracing::info!(domain = %domain, dropped_node = %target_node_id, "pruned route for dropped node");
+                    }
+                }
+
+                // If the dropped node was the current leader, trigger immediate election
+                let was_leader = {
+                    let mut state = self.election_state.write().await;
+                    if let Some(leader) = &state.current_leader {
+                        if leader.node_id == target_node_id {
+                            state.current_leader = None;
+                            let _ = self.leader_tx.send(None);
+                            true
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    }
+                };
+
+                if was_leader {
+                    tracing::info!(dropped_leader = %target_node_id, "dropped leader node; triggering election");
+                    let this = self.clone();
+                    tokio::spawn(async move {
+                        let _ = this.start_election().await;
+                    });
+                }
+
+                Ok(peer)
+            }
+            None => Err(format!("Node '{target_node_id}' not found in cluster peers").into()),
+        }
+    }
+
+    /// Forces a synchronization of the in-memory WireGuard peers table to the Linux kernel interface.
+    pub async fn sync_wireguard_kernel(&self) -> Result<usize, Box<dyn std::error::Error + Send + Sync>> {
+        let wg = self.wireguard.write().await;
+        wg.sync_to_kernel()?;
+        Ok(wg.peer_count())
+    }
+
     /// Registers or updates a local route and immediately disseminates it across the cluster.
     pub async fn broadcast_route(
         &self,
@@ -1044,7 +1187,11 @@ impl ClusterController {
                     let mut state = self.election_state.write().await;
                     if term >= state.term {
                         state.term = term;
-                        state.role = ElectionRole::Follower;
+                        state.role = if leader.node_id == self.local_node.node_id {
+                            ElectionRole::Leader
+                        } else {
+                            ElectionRole::Follower
+                        };
                         state.current_leader = Some(leader.clone());
                         let _ = self.leader_tx.send(Some(leader.clone()));
                         true

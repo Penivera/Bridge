@@ -86,12 +86,17 @@
             <tr><td><code>bridge config set &lt;key&gt; &lt;val&gt;</code></td><td>Config</td><td>Atomically update a config key on disk and reload the daemon immediately.</td></tr>
             <tr><td><code>bridge nodes</code></td><td>Cluster</td><td>List all known cluster nodes with lifecycle states, mesh IPs, and priorities.</td></tr>
             <tr><td><code>bridge node inspect &lt;id&gt;</code></td><td>Cluster</td><td>Deep-dive telemetry for a single node (heartbeat, IP, priority, state).</td></tr>
+            <tr><td><code>bridge node drop &lt;id&gt;</code></td><td>Cluster</td><td>Administratively drop/evict a node from the cluster mesh and prune its routes.</td></tr>
             <tr><td><code>bridge mesh status</code></td><td>Mesh</td><td>Inspect local WireGuard interface (<code>wg0</code>), mesh IP, port, public key.</td></tr>
             <tr><td><code>bridge mesh peers</code></td><td>Mesh</td><td>List all active WireGuard peers, their AllowedIPs, endpoints, and status.</td></tr>
+            <tr><td><code>bridge mesh sync</code></td><td>Mesh</td><td>Force synchronization of in-memory WireGuard peers to the Linux kernel interface.</td></tr>
             <tr><td><code>bridge election status</code></td><td>Consensus</td><td>Display leader ID, local role, election term, and candidate priority scores.</td></tr>
-            <tr><td><code>bridge election trigger</code></td><td>Consensus</td><td>Trigger a leader election re-evaluation or manual step-down across the fleet.</td></tr>
+            <tr><td><code>bridge election trigger</code></td><td>Consensus</td><td>Trigger a leader election cycle across the fleet.</td></tr>
+            <tr><td><code>bridge election set-leader &lt;id&gt;</code></td><td>Consensus</td><td>Administratively force specify a leader across the cluster.</td></tr>
+            <tr><td><code>bridge election step-down</code></td><td>Consensus</td><td>Administratively step down from leadership on the local node and notify peers.</td></tr>
             <tr><td><code>bridge proxy status</code></td><td>Proxy</td><td>Report L7/L4 proxy state, listening ports, and active backend targets.</td></tr>
             <tr><td><code>bridge routes</code></td><td>Routing</td><td>List all registered routing table entries (static and Docker discovered).</td></tr>
+            <tr><td><code>bridge routes prune</code></td><td>Routing</td><td>Prune stale/orphaned routes targeting dead or evicted nodes.</td></tr>
             <tr><td><code>bridge add-route &lt;domain&gt; &lt;up&gt;</code></td><td>Routing</td><td>Dynamically add an ingress route directly into the daemon registry.</td></tr>
             <tr><td><code>bridge remove-route &lt;domain&gt;</code></td><td>Routing</td><td>Evict an ingress route from the daemon registry.</td></tr>
             <tr><td><code>bridge inspect &lt;domain&gt;</code></td><td>Routing</td><td>Inspect route resolution and consistent-hash backend targets for a domain.</td></tr>
@@ -150,7 +155,10 @@ bridge config reload</code></pre>
 bridge nodes
 
 <span class="c"># Deep-dive into a specific node's gossip telemetry</span>
-bridge node inspect node-02</code></pre>
+bridge node inspect node-02
+
+<span class="c"># Administratively drop/evict a node from the cluster and mesh</span>
+bridge node drop node-03</code></pre>
       </div>
 
       <h3>WireGuard Mesh &amp; Tunnels</h3>
@@ -163,7 +171,10 @@ bridge node inspect node-02</code></pre>
 bridge mesh status
 
 <span class="c"># List active peer tunnels, endpoints, and AllowedIPs</span>
-bridge mesh peers</code></pre>
+bridge mesh peers
+
+<span class="c"># Force kernel WireGuard interface and routing table synchronization</span>
+bridge mesh sync</code></pre>
       </div>
 
       <h3>Consensus &amp; Ingress Failover</h3>
@@ -177,7 +188,13 @@ bridge mesh peers</code></pre>
 bridge election status
 
 <span class="c"># Trigger fleet election re-evaluation (e.g. before taking node down for maintenance)</span>
-bridge election trigger</code></pre>
+bridge election trigger
+
+<span class="c"># Administratively force a specific node as leader across the cluster</span>
+bridge election set-leader node-02
+
+<span class="c"># Administratively resign from leadership on the local node</span>
+bridge election step-down</code></pre>
       </div>
 
       <h3>Proxy &amp; Route Management</h3>
@@ -192,6 +209,9 @@ bridge proxy status
 
 <span class="c"># List all active routes (static and Docker-discovered)</span>
 bridge routes
+
+<span class="c"># Prune stale/orphaned routes targeting dead or evicted nodes</span>
+bridge routes prune
 
 <span class="c"># Register a new service route on the fly</span>
 bridge add-route api.example.com http://10.8.0.2:8000

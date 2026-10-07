@@ -75,8 +75,10 @@ pub enum Commands {
         #[arg(short, long, default_value = "/tmp/bridge.sock")]
         socket: PathBuf,
     },
-    /// List active domain routes in the running Bridge daemon
+    /// List or prune active domain routes in the running Bridge daemon
     Routes {
+        #[command(subcommand)]
+        command: Option<RoutesCommands>,
         #[arg(short, long, default_value = "/tmp/bridge.sock")]
         socket: PathBuf,
     },
@@ -200,6 +202,14 @@ pub enum NodeCommands {
         #[arg(short, long, default_value = "/tmp/bridge.sock")]
         socket: PathBuf,
     },
+    /// Administratively drop/evict a node from the cluster and mesh
+    #[command(alias = "evict", alias = "remove")]
+    Drop {
+        /// Node ID to drop (e.g. vm-02)
+        node_id: String,
+        #[arg(short, long, default_value = "/tmp/bridge.sock")]
+        socket: PathBuf,
+    },
 }
 
 #[derive(Subcommand, Debug, Clone)]
@@ -214,6 +224,12 @@ pub enum MeshCommands {
         #[arg(short, long, default_value = "/tmp/bridge.sock")]
         socket: PathBuf,
     },
+    /// Force kernel WireGuard interface and routing synchronization
+    #[command(alias = "resync")]
+    Sync {
+        #[arg(short, long, default_value = "/tmp/bridge.sock")]
+        socket: PathBuf,
+    },
 }
 
 #[derive(Subcommand, Debug, Clone)]
@@ -223,9 +239,37 @@ pub enum ElectionCommands {
         #[arg(short, long, default_value = "/tmp/bridge.sock")]
         socket: PathBuf,
     },
-    /// Trigger an election cycle or leader step-down
-    #[command(alias = "step-down", alias = "step_down")]
+    /// Trigger an election cycle
     Trigger {
+        #[arg(short, long, default_value = "/tmp/bridge.sock")]
+        socket: PathBuf,
+    },
+    /// Force specify a cluster leader
+    #[command(name = "set-leader", alias = "force", alias = "appoint")]
+    SetLeader {
+        /// Target node identifier to appoint as leader
+        node_id: String,
+        #[arg(short, long, default_value = "/tmp/bridge.sock")]
+        socket: PathBuf,
+    },
+    /// Administratively resign/step down from leadership on this node
+    #[command(name = "step-down", alias = "resign", alias = "yield")]
+    StepDown {
+        #[arg(short, long, default_value = "/tmp/bridge.sock")]
+        socket: PathBuf,
+    },
+}
+
+#[derive(Subcommand, Debug, Clone)]
+pub enum RoutesCommands {
+    /// List active domain routes in the running Bridge daemon
+    List {
+        #[arg(short, long, default_value = "/tmp/bridge.sock")]
+        socket: PathBuf,
+    },
+    /// Prune dead or orphaned routes targeting evicted/unregistered nodes
+    #[command(alias = "clean", alias = "purge")]
+    Prune {
         #[arg(short, long, default_value = "/tmp/bridge.sock")]
         socket: PathBuf,
     },
@@ -468,6 +512,16 @@ pub async fn execute_command(
                 }
                 Ok(CommandOutcome::Exit)
             }
+            NodeCommands::Drop { node_id, socket } => {
+                let mut client = IpcClient::connect(&socket).await?;
+                let resp = client.drop_node(node_id).await?;
+                if let IpcData::AdminResult { message, .. } = resp {
+                    println!("SUCCESS: {message}");
+                } else {
+                    println!("{}", serde_json::to_string_pretty(&resp)?);
+                }
+                Ok(CommandOutcome::Exit)
+            }
         },
         Commands::Mesh { command, socket } => match command.unwrap_or(MeshCommands::Status { socket: socket.clone() }) {
             MeshCommands::Status { socket } => {
@@ -521,6 +575,16 @@ pub async fn execute_command(
                 }
                 Ok(CommandOutcome::Exit)
             }
+            MeshCommands::Sync { socket } => {
+                let mut client = IpcClient::connect(&socket).await?;
+                let resp = client.mesh_sync().await?;
+                if let IpcData::MeshSyncResult { message, .. } = resp {
+                    println!("SUCCESS: {message}");
+                } else {
+                    println!("{}", serde_json::to_string_pretty(&resp)?);
+                }
+                Ok(CommandOutcome::Exit)
+            }
         },
         Commands::Election { command, socket } => match command.unwrap_or(ElectionCommands::Status { socket: socket.clone() }) {
             ElectionCommands::Status { socket } => {
@@ -556,6 +620,26 @@ pub async fn execute_command(
                 println!("SUCCESS: {msg}");
                 Ok(CommandOutcome::Exit)
             }
+            ElectionCommands::SetLeader { node_id, socket } => {
+                let mut client = IpcClient::connect(&socket).await?;
+                let resp = client.set_leader(node_id).await?;
+                if let IpcData::AdminResult { message, .. } = resp {
+                    println!("SUCCESS: {message}");
+                } else {
+                    println!("{}", serde_json::to_string_pretty(&resp)?);
+                }
+                Ok(CommandOutcome::Exit)
+            }
+            ElectionCommands::StepDown { socket } => {
+                let mut client = IpcClient::connect(&socket).await?;
+                let resp = client.step_down().await?;
+                if let IpcData::AdminResult { message, .. } = resp {
+                    println!("SUCCESS: {message}");
+                } else {
+                    println!("{}", serde_json::to_string_pretty(&resp)?);
+                }
+                Ok(CommandOutcome::Exit)
+            }
         },
         Commands::Proxy { command, socket } => match command.unwrap_or(ProxyCommands::Status { socket: socket.clone() }) {
             ProxyCommands::Status { socket } => {
@@ -582,25 +666,43 @@ pub async fn execute_command(
                 Ok(CommandOutcome::Exit)
             }
         },
-        Commands::Routes { socket } => {
-            let mut client = IpcClient::connect(&socket).await?;
-            let routes = client.list_routes().await?;
-            if routes.is_empty() {
-                println!("No routes registered.");
-            } else {
-                println!("{:<32} {:<24} {:<15} {:<8}", "DOMAIN", "UPSTREAM", "NODE_ID", "STATE");
-                println!("{:-<82}", "");
-                for (domain, info) in routes {
-                    let up = info
-                        .upstream
-                        .map(|a| a.to_string())
-                        .unwrap_or_else(|| "-".to_string());
-                    let state = if info.health == "healthy" { "ACTIVE" } else { "DEAD" };
-                    println!("{:<32} {:<24} {:<15} {:<8}", domain, up, info.node_id, state);
+        Commands::Routes { command, socket } => match command.unwrap_or(RoutesCommands::List { socket: socket.clone() }) {
+            RoutesCommands::List { socket } => {
+                let mut client = IpcClient::connect(&socket).await?;
+                let routes = client.list_routes().await?;
+                if routes.is_empty() {
+                    println!("No routes registered.");
+                } else {
+                    println!("{:<32} {:<24} {:<15} {:<8}", "DOMAIN", "UPSTREAM", "NODE_ID", "STATE");
+                    println!("{:-<82}", "");
+                    for (domain, info) in routes {
+                        let up = info
+                            .upstream
+                            .map(|a| a.to_string())
+                            .unwrap_or_else(|| "-".to_string());
+                        let state = if info.health == "healthy" { "ACTIVE" } else { "DEAD" };
+                        println!("{:<32} {:<24} {:<15} {:<8}", domain, up, info.node_id, state);
+                    }
                 }
+                Ok(CommandOutcome::Exit)
             }
-            Ok(CommandOutcome::Exit)
-        }
+            RoutesCommands::Prune { socket } => {
+                let mut client = IpcClient::connect(&socket).await?;
+                let resp = client.prune_routes().await?;
+                if let IpcData::PruneResult { pruned_count, pruned_domains, message } = resp {
+                    println!("SUCCESS: {message}");
+                    if !pruned_domains.is_empty() {
+                        println!("Pruned domains ({}):", pruned_count);
+                        for d in pruned_domains {
+                            println!("  - {d}");
+                        }
+                    }
+                } else {
+                    println!("{}", serde_json::to_string_pretty(&resp)?);
+                }
+                Ok(CommandOutcome::Exit)
+            }
+        },
         Commands::AddRoute {
             domain,
             upstream,

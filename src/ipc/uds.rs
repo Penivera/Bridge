@@ -61,6 +61,15 @@ pub enum IpcRequest {
     MeshStatus,
     ElectionStatus,
     TriggerElection,
+    SetLeader {
+        node_id: String,
+    },
+    StepDown,
+    DropNode {
+        node_id: String,
+    },
+    PruneRoutes,
+    MeshSync,
     ProxyStatus,
     Health,
 }
@@ -187,6 +196,20 @@ pub enum IpcData {
         username: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         created: Option<bool>,
+        message: String,
+    },
+    AdminResult {
+        action: String,
+        target: String,
+        message: String,
+    },
+    PruneResult {
+        pruned_count: usize,
+        pruned_domains: Vec<String>,
+        message: String,
+    },
+    MeshSyncResult {
+        synced_peers: usize,
         message: String,
     },
     Message {
@@ -965,6 +988,117 @@ async fn handle_ipc_connection(
                         },
                     }
                 }
+                IpcRequest::SetLeader { node_id } => {
+                    let cluster_guard = cluster_slot.read().await;
+                    if let Some(ctrl) = cluster_guard.as_ref() {
+                        match ctrl.force_leader(&node_id).await {
+                            Ok((leader, term)) => IpcResponse::Ok {
+                                data: IpcData::AdminResult {
+                                    action: "set_leader".to_string(),
+                                    target: leader.node_id.clone(),
+                                    message: format!("Leader administratively set to '{}' at term {}", leader.node_id, term),
+                                },
+                            },
+                            Err(err) => IpcResponse::Error {
+                                message: format!("Failed to set leader: {err}"),
+                            },
+                        }
+                    } else {
+                        IpcResponse::Error {
+                            message: "Cluster mesh not enabled or active on this node (standalone mode)".to_string(),
+                        }
+                    }
+                }
+                IpcRequest::StepDown => {
+                    let cluster_guard = cluster_slot.read().await;
+                    if let Some(ctrl) = cluster_guard.as_ref() {
+                        match ctrl.step_down().await {
+                            Ok(stepped_down) => IpcResponse::Ok {
+                                data: IpcData::AdminResult {
+                                    action: "step_down".to_string(),
+                                    target: ctrl.local_node.node_id.clone(),
+                                    message: if stepped_down {
+                                        format!("Node '{}' successfully stepped down from leadership", ctrl.local_node.node_id)
+                                    } else {
+                                        format!("Node '{}' was not the leader, election initiated", ctrl.local_node.node_id)
+                                    },
+                                },
+                            },
+                            Err(err) => IpcResponse::Error {
+                                message: format!("Failed to step down: {err}"),
+                            },
+                        }
+                    } else {
+                        IpcResponse::Error {
+                            message: "Cluster mesh not enabled or active on this node (standalone mode)".to_string(),
+                        }
+                    }
+                }
+                IpcRequest::DropNode { node_id } => {
+                    let cluster_guard = cluster_slot.read().await;
+                    if let Some(ctrl) = cluster_guard.as_ref() {
+                        match ctrl.drop_node(&node_id).await {
+                            Ok(dropped) => IpcResponse::Ok {
+                                data: IpcData::AdminResult {
+                                    action: "drop_node".to_string(),
+                                    target: dropped.node_id.clone(),
+                                    message: format!("Node '{}' successfully dropped and evicted from cluster", dropped.node_id),
+                                },
+                            },
+                            Err(err) => IpcResponse::Error {
+                                message: format!("Failed to drop node: {err}"),
+                            },
+                        }
+                    } else {
+                        IpcResponse::Error {
+                            message: "Cluster mesh not enabled or active on this node (standalone mode)".to_string(),
+                        }
+                    }
+                }
+                IpcRequest::PruneRoutes => {
+                    let cluster_guard = cluster_slot.read().await;
+                    let snapshot = registry.snapshot();
+                    let mut pruned = Vec::new();
+                    if let Some(ctrl) = cluster_guard.as_ref() {
+                        let peers_map = ctrl.peers.read().await;
+                        for (domain, route) in snapshot.iter() {
+                            let alive = ctrl.local_node.node_id == route.node.node_id
+                                || peers_map.contains_key(&route.node.node_id);
+                            if !alive {
+                                registry.remove(domain);
+                                pruned.push(domain.clone());
+                            }
+                        }
+                    }
+                    let count = pruned.len();
+                    IpcResponse::Ok {
+                        data: IpcData::PruneResult {
+                            pruned_count: count,
+                            pruned_domains: pruned,
+                            message: format!("Pruned {count} stale route(s) from registry"),
+                        },
+                    }
+                }
+                IpcRequest::MeshSync => {
+                    let cluster_guard = cluster_slot.read().await;
+                    if let Some(ctrl) = cluster_guard.as_ref() {
+                        match ctrl.sync_wireguard_kernel().await {
+                            Ok(synced_peers) => IpcResponse::Ok {
+                                data: IpcData::MeshSyncResult {
+                                    synced_peers,
+                                    message: format!("Synchronized {synced_peers} WireGuard peer(s) to kernel"),
+                                },
+                            },
+                            Err(err) => IpcResponse::Error {
+                                message: format!("Failed to sync WireGuard kernel interface: {err}"),
+                            },
+                        }
+                    } else {
+                        IpcResponse::Error {
+                            message: "Cluster mesh not enabled or active on this node (standalone mode)".to_string(),
+                        }
+                    }
+                }
             },
             Err(err) => IpcResponse::Error {
                 message: format!("invalid JSON request: {err}"),
@@ -1495,6 +1629,46 @@ impl IpcClient {
     /// Retrieves system health summary.
     pub async fn health(&mut self) -> Result<IpcData, Box<dyn std::error::Error>> {
         match self.send(&IpcRequest::Health).await? {
+            IpcResponse::Ok { data } => Ok(data),
+            IpcResponse::Error { message } => Err(message.into()),
+        }
+    }
+
+    /// Administratively force specifies a leader on the cluster.
+    pub async fn set_leader(&mut self, node_id: String) -> Result<IpcData, Box<dyn std::error::Error>> {
+        match self.send(&IpcRequest::SetLeader { node_id }).await? {
+            IpcResponse::Ok { data } => Ok(data),
+            IpcResponse::Error { message } => Err(message.into()),
+        }
+    }
+
+    /// Administratively steps down from leadership on this node.
+    pub async fn step_down(&mut self) -> Result<IpcData, Box<dyn std::error::Error>> {
+        match self.send(&IpcRequest::StepDown).await? {
+            IpcResponse::Ok { data } => Ok(data),
+            IpcResponse::Error { message } => Err(message.into()),
+        }
+    }
+
+    /// Administratively drops/evicts a node from the cluster and mesh.
+    pub async fn drop_node(&mut self, node_id: String) -> Result<IpcData, Box<dyn std::error::Error>> {
+        match self.send(&IpcRequest::DropNode { node_id }).await? {
+            IpcResponse::Ok { data } => Ok(data),
+            IpcResponse::Error { message } => Err(message.into()),
+        }
+    }
+
+    /// Administratively prunes stale/orphaned routes from the registry.
+    pub async fn prune_routes(&mut self) -> Result<IpcData, Box<dyn std::error::Error>> {
+        match self.send(&IpcRequest::PruneRoutes).await? {
+            IpcResponse::Ok { data } => Ok(data),
+            IpcResponse::Error { message } => Err(message.into()),
+        }
+    }
+
+    /// Forces a sync of in-memory WireGuard peers to the Linux kernel interface.
+    pub async fn mesh_sync(&mut self) -> Result<IpcData, Box<dyn std::error::Error>> {
+        match self.send(&IpcRequest::MeshSync).await? {
             IpcResponse::Ok { data } => Ok(data),
             IpcResponse::Error { message } => Err(message.into()),
         }
