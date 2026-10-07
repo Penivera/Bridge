@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>BRIDGE // Distributed. Self-aware. Fault-tolerant ingress for dynamic cloud infrastructure</title>
-  <meta name="description" content="BRIDGE is distributed, self-aware, fault-tolerant ingress for dynamic cloud infrastructure: a single Rust daemon that turns a fleet of VPS nodes across cloud providers into one resilient system with encrypted mesh, gossip membership, leader election, and automatic ingress handoff.">
+  <meta name="description" content="BRIDGE is a lightweight daemon (emphasis on lightweight) that runs on your VMs to watch services spin up and down, build an automatic routing table across your fleet, replicate workloads, and make every node aware of every service, no matter where it lives.">
   <link rel="icon" type="image/png" href="assets/favicon.png">
   <link rel="stylesheet" href="assets/style.css">
 </head>
@@ -40,9 +40,10 @@
       <p class="hero-eyebrow">Systems architecture &amp; ingress</p>
       <h1>Distributed. Self-aware. Fault-tolerant ingress for dynamic cloud infrastructure.</h1>
       <p class="hero-lead">
-        BRIDGE is infrastructure software: a single Rust binary daemon that runs on each
-        VPS node and turns a scattered fleet, across cloud providers, into one encrypted,
-        self-healing system with a single ingress point.
+        BRIDGE is a lightweight daemon (emphasis on lightweight) that runs on your VMs.
+        It watches services spin up and down, builds an automatic routing table across your fleet,
+        handles automatic cross-VM replication, and makes every node aware of every service,
+        no matter where it lives.
       </p>
       <div class="cmd-bar">
         <span class="prompt" aria-hidden="true">$</span>
@@ -58,74 +59,74 @@
     <section class="section">
       <div class="container">
         <p class="section-kicker">Why BRIDGE exists</p>
-        <h2 class="section-title">Running a cluster as one.</h2>
+        <h2 class="section-title">The infrastructure changes. How does the network know?</h2>
         <p class="section-lead">
-          Distributed fleets fail in a specific way: every application can be running
-          while the system as a whole is down. One node holds the ingress entrypoint:
-          the public IP, the DNS record, the tunnel. When that node dies, or a workload
-          moves to another host, the entry boundary goes stale and every backend becomes
-          unreachable. The infrastructure changed; the configuration did not.
+          When you have several servers running different services, routing traffic to them
+          is pure friction. Every deployment meant updating a stack of configurations across
+          the board: SSH into the host, edit reverse proxy configs, validate syntax, reload,
+          and hope nothing breaks in transit. Static gateway mappings become stale the moment
+          dynamic containers move.
         </p>
         <p class="section-lead">
-          Manual reconfiguration cannot keep up with that rate of change. Rewiring DNS,
-          upstream targets, and tunnels by hand after every deploy and every failure
-          doesn't prevent downtime: it schedules it. The entrypoint is a single point
-          of failure, and the human in the loop is the latency.
+          Worse, healthy infrastructure can still be unreachable. If an ingress bastion crashes,
+          your application backends are running fine, but the outside world is cut off.
+          Human-in-the-loop latency guarantees network downtime during unplanned failures—manual
+          reconfiguration simply cannot keep up with dynamic cloud workloads.
         </p>
         <p class="section-lead">
-          BRIDGE closes that gap. Nodes form an encrypted WireGuard mesh, track each
-          other's health over gossip, elect a leader to hold the ingress entrypoint,
-          and reroute around failure automatically, moving the entrypoint itself when
-          the leader dies. The fleet behaves like one system because, to BRIDGE,
-          it is one system.
+          BRIDGE eliminates that friction by making infrastructure aware of itself. A lightweight
+          daemon on each VM watches services spin up and down, forms an encrypted WireGuard mesh,
+          gossips health state, and autonomously elects an edge leader. If a leader or backend dies,
+          traffic reroutes and the ingress hands off in milliseconds without human intervention.
+          It makes a fleet of VMs work like one—bridging the brain, so to speak.
         </p>
       </div>
     </section>
 
     <section class="section">
       <div class="container">
-        <p class="section-kicker">Capabilities</p>
-        <h2 class="section-title">Everything the fleet needs, in one binary</h2>
+        <p class="section-kicker">What it does</p>
+        <h2 class="section-title">Everything your fleet needs, in one lightweight binary</h2>
         <div class="grid">
           <div class="card">
-            <span class="card-tag">Networking</span>
-            <h3>WireGuard L3 mesh</h3>
-            <p>Nodes form an encrypted overlay network (e.g. 10.8.0.x). Keys are auto-generated if not configured.</p>
-          </div>
-          <div class="card">
-            <span class="card-tag">Membership</span>
-            <h3>SWIM gossip</h3>
-            <p>Nodes discover and health-track each other (Alive &rarr; Suspected &rarr; Dead &rarr; Recovered), converging in seconds.</p>
-          </div>
-          <div class="card">
-            <span class="card-tag">Consensus</span>
-            <h3>Leader election</h3>
-            <p>Bully algorithm with configurable priorities. One leader holds the ingress entrypoint for the fleet.</p>
-          </div>
-          <div class="card">
-            <span class="card-tag">Ingress</span>
-            <h3>Three proxy modes</h3>
-            <p>L7 Direct HTTP reverse proxy per hostname, L4 SNI passthrough, or Managed delegation to an existing Coolify install.</p>
-          </div>
-          <div class="card">
-            <span class="card-tag">Failover</span>
-            <h3>Ingress handoff tiers</h3>
-            <p>None, health-checked DNS failover, Cloudflare Tunnel held by the leader, or a Floating IP: pick per deployment.</p>
-          </div>
-          <div class="card">
             <span class="card-tag">Routing</span>
-            <h3>Route management</h3>
-            <p>Static routes from config plus Docker auto-discovery of labeled containers. Consistent-hash routing with session affinity.</p>
+            <h3>Cross-fleet routing</h3>
+            <p>One entry point, multiple servers. Ingress traffic routes point-to-point over WireGuard directly to healthy backends on any VM.</p>
+          </div>
+          <div class="card">
+            <span class="card-tag">Compatibility</span>
+            <h3>Plugs into your existing stack</h3>
+            <p>Works alongside Traefik, Nginx, or whatever you already run. Choose L7 Direct HTTP, L4 SNI passthrough, or custom reverse proxies.</p>
+          </div>
+          <div class="card">
+            <span class="card-tag">Integrations</span>
+            <h3>First-class Coolify support</h3>
+            <p>Managed delegation mode pairs directly with your Coolify setup to bridge nodes and route dynamic multi-server deployments seamlessly.</p>
+          </div>
+          <div class="card">
+            <span class="card-tag">Discovery</span>
+            <h3>Automatic routing table</h3>
+            <p>Watches services spin up and down in real time. Makes every node aware of every service across your fleet, wherever it lives.</p>
           </div>
           <div class="card">
             <span class="card-tag">Resilience</span>
-            <h3>Failover duplication</h3>
-            <p>Workloads can be replicated to peer nodes on failure, with manual or automatic failback and cooldowns.</p>
+            <h3>Automatic cross-VM replication</h3>
+            <p>Critical workloads can replicate to peer nodes on failure, with automatic or manual failback and configurable cooldowns.</p>
+          </div>
+          <div class="card">
+            <span class="card-tag">Liveness</span>
+            <h3>Self-aware SWIM gossip</h3>
+            <p>Continuous heartbeat detection discovers cluster health (Alive &rarr; Suspected &rarr; Dead &rarr; Recovered), converging in seconds.</p>
+          </div>
+          <div class="card">
+            <span class="card-tag">Consensus</span>
+            <h3>Autonomous leader election</h3>
+            <p>Bully algorithm with configurable priorities elects one ingress leader. If it dies, another takes over instantly without human latency.</p>
           </div>
           <div class="card">
             <span class="card-tag">Operations</span>
             <h3>Dashboard &amp; CLI</h3>
-            <p>Embedded ops console on 127.0.0.1:9090, WebSocket real-time events, JSON API, and a CLI over a Unix socket.</p>
+            <p>Embedded ops console on 127.0.0.1:9090, real-time WebSocket events, JSON API, and a fast CLI over Unix socket.</p>
           </div>
         </div>
       </div>
@@ -133,7 +134,7 @@
 
     <section class="section">
       <div class="container">
-        <p class="section-kicker">Architecture</p>
+        <p class="section-kicker">Architecture &mdash; One mind. Different bodies. Same goal.</p>
         <h2 class="section-title">A daemon on every node, a leader at the edge</h2>
         <div class="diagram" role="img" aria-label="Diagram: clients reach the fleet through DNS or a Cloudflare Tunnel held by the leader node; all nodes are connected by an encrypted WireGuard mesh.">
           <div class="d-row">
@@ -166,9 +167,9 @@
           </div>
         </div>
         <p class="diagram-caption">
-          Every node runs the same BRIDGE daemon. Gossip keeps membership current; the bully
-          algorithm keeps exactly one leader. If the leader dies, the fleet re-elects and the
-          tunnel or DNS entrypoint moves with it.
+          Every VM runs the same lightweight BRIDGE daemon. Continuous SWIM gossip keeps node state
+          synchronized, while leader election assigns the public ingress. If the active leader dies,
+          another takes over instantly—continuous state, automatic decisions.
         </p>
       </div>
     </section>
@@ -176,19 +177,19 @@
     <section class="section">
       <div class="container">
         <p class="section-kicker">How it works</p>
-        <h2 class="section-title">Three steps to a fleet</h2>
+        <h2 class="section-title">Three steps to a self-aware fleet</h2>
         <div class="steps">
           <div class="step">
-            <h3>Install the daemon on each node</h3>
-            <p>One command per VPS installs the binary, a dedicated user, and a systemd unit.</p>
+            <h3>Install the daemon on each VM</h3>
+            <p>One lightweight command per VM installs the binary, sets up a system user, and configures the systemd service.</p>
           </div>
           <div class="step">
             <h3>Nodes form the mesh and elect a leader</h3>
-            <p>WireGuard links come up, gossip membership converges in seconds, and the highest-priority alive node takes the ingress.</p>
+            <p>WireGuard links connect, gossip discovers peers in seconds, and the highest-priority alive node takes the ingress.</p>
           </div>
           <div class="step">
-            <h3>Point DNS or the tunnel at the fleet</h3>
-            <p>The leader terminates ingress and routes to any node over the mesh. Failure triggers re-election and handoff, not downtime.</p>
+            <h3>Route seamlessly across the fleet</h3>
+            <p>One entry point for multiple servers. As services spin up and down, BRIDGE updates the routing table automatically.</p>
           </div>
         </div>
       </div>
@@ -199,7 +200,7 @@
     <div class="container footer-grid">
       <div>
         <a class="wordmark" href="index.html"><img src="assets/favicon.png" alt="" aria-hidden="true">BRIDGE</a>
-        <p class="muted">A single Rust daemon that turns a fleet of VPS nodes into one resilient system.</p>
+        <p class="muted">A lightweight daemon that runs on your VMs to turn a fleet into one self-aware system—bridging the brain across your nodes.</p>
       </div>
       <nav aria-label="Documentation">
         <h4>Docs</h4>
