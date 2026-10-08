@@ -100,7 +100,9 @@
             <tr><td><code>bridge add-route &lt;domain&gt; &lt;up&gt;</code></td><td>Routing</td><td>Dynamically add an ingress route directly into the daemon registry.</td></tr>
             <tr><td><code>bridge remove-route &lt;domain&gt;</code></td><td>Routing</td><td>Evict an ingress route from the daemon registry.</td></tr>
             <tr><td><code>bridge inspect &lt;domain&gt;</code></td><td>Routing</td><td>Inspect route resolution and consistent-hash backend targets for a domain.</td></tr>
+            <tr><td><code>bridge discovery</code></td><td>Discovery</td><td>Inspect Docker auto-discovered services, container IDs, detected domains, and upstreams.</td></tr>
             <tr><td><code>bridge replicas</code></td><td>Resilience</td><td>Show failover-duplication replicas, original nodes, and placement status.</td></tr>
+            <tr><td><code>bridge update</code></td><td>Maintenance</td><td>In-place self-update from GitHub releases with SHA256 checksum verification.</td></tr>
           </tbody>
         </table>
       </div>
@@ -223,6 +225,24 @@ bridge remove-route api.example.com
 bridge inspect api.example.com</code></pre>
       </div>
 
+      <h3>Docker Auto-Discovery Inspection</h3>
+      <p>
+        Inspect services discovered by Bridge across Docker containers. When the daemon is running,
+        <code>bridge discovery</code> queries the daemon via IPC. If the daemon is offline, it automatically
+        scans the local Docker socket directly:
+      </p>
+      <div class="codeblock">
+        <button class="copy-btn" type="button" data-copy-target="#cli-disc-cmd">Copy</button>
+<pre id="cli-disc-cmd"><code><span class="c"># List currently discovered Docker services across running containers</span>
+bridge discovery
+
+<span class="c"># Output discovered services in JSON format for automation or scripts</span>
+bridge discovery --json
+
+<span class="c"># Force a direct scan of Docker socket without querying daemon</span>
+bridge discovery scan --docker-socket /var/run/docker.sock</code></pre>
+      </div>
+
       <h2 id="health">Health endpoint</h2>
       <p>
         <code>GET /health</code> on the dashboard listener reports daemon health, suitable
@@ -277,15 +297,23 @@ journalctl -u bridge -f     <span class="c"># follow daemon logs</span></code></
 
       <h2 id="upgrading">Upgrading</h2>
       <p>
-        Re-run the installer. It downloads and verifies the new release, replaces the binary,
-        and restarts the service. Your existing <code>/etc/bridge/bridge.toml</code> is never
-        overwritten. Pin a specific version when you want a controlled rollout:
+        Bridge features a built-in auto-update command that checks GitHub releases, verifies SHA256 checksums,
+        replaces the binary atomically, and restarts the systemd service. Your existing
+        <code>/etc/bridge/bridge.toml</code> is never overwritten:
       </p>
       <div class="codeblock">
         <button class="copy-btn" type="button" data-copy-target="#upgrade-cmd">Copy</button>
-<pre id="upgrade-cmd"><code>curl -fsSL https://bridgemesh.space/install.sh | sh
-<span class="c"># or pin a version:</span>
-curl -fsSL https://bridgemesh.space/install.sh | BRIDGE_VERSION=v1.2.3 sh</code></pre>
+<pre id="upgrade-cmd"><code><span class="c"># Check if an update is available without modifying files</span>
+bridge update --check
+
+<span class="c"># Download, verify SHA256 checksum, and upgrade in-place (restarts systemd service)</span>
+sudo bridge update
+
+<span class="c"># Force reinstallation or pin a specific version tag</span>
+sudo bridge update --version v0.1.0-8f7998b5
+
+<span class="c"># Alternative: re-run the curl installer pipe</span>
+curl -fsSL https://bridgemesh.space/install.sh | sudo sh</code></pre>
       </div>
       <p>
         Upgrade followers first and the leader last: the fleet re-elects a follower as

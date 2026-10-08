@@ -134,6 +134,8 @@ pub fn parse_docker_labels(
         .collect()
 }
 
+pub use crate::ipc::DiscoveredServiceInfo;
+
 /// Discovers services by connecting to the local Docker daemon and watching container events.
 pub struct DockerDiscovery {
     client: bollard::Docker,
@@ -141,6 +143,7 @@ pub struct DockerDiscovery {
     default_node_id: String,
     mesh_ip: Option<IpAddr>,
     container_routes: Arc<RwLock<HashMap<String, Vec<String>>>>,
+    discovered_services: Arc<RwLock<HashMap<String, DiscoveredServiceInfo>>>,
 }
 
 impl DockerDiscovery {
@@ -156,6 +159,7 @@ impl DockerDiscovery {
             default_node_id: default_node_id.into(),
             mesh_ip: None,
             container_routes: Arc::new(RwLock::new(HashMap::new())),
+            discovered_services: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -163,6 +167,20 @@ impl DockerDiscovery {
     /// by peers through the WireGuard overlay.
     pub fn with_mesh_ip(mut self, mesh_ip: IpAddr) -> Self {
         self.mesh_ip = Some(mesh_ip);
+        self
+    }
+
+    /// Returns a shared handle to the discovered services map.
+    pub fn services_handle(&self) -> Arc<RwLock<HashMap<String, DiscoveredServiceInfo>>> {
+        self.discovered_services.clone()
+    }
+
+    /// Replaces the discovered services store with a shared handle.
+    pub fn with_services_store(
+        mut self,
+        store: Arc<RwLock<HashMap<String, DiscoveredServiceInfo>>>,
+    ) -> Self {
+        self.discovered_services = store;
         self
     }
 
@@ -206,6 +224,7 @@ impl DockerDiscovery {
 
             if !routes.is_empty() {
                 let mut domains_for_container = Vec::new();
+                let mut first_upstream = None;
                 for (domain, route) in routes {
                     tracing::info!(
                         container_id = %id,
@@ -213,12 +232,42 @@ impl DockerDiscovery {
                         upstream = ?route.upstream,
                         "discovered docker service on initial scan"
                     );
+                    if first_upstream.is_none() {
+                        first_upstream = route.upstream;
+                    }
                     self.registry.insert(domain.clone(), route);
                     domains_for_container.push(domain);
                     total_routes += 1;
                 }
+                let short_id = id[..12.min(id.len())].to_string();
+                let name = container
+                    .names
+                    .as_ref()
+                    .and_then(|names| names.first())
+                    .map(|n| n.trim_start_matches('/').to_string())
+                    .unwrap_or_else(|| short_id.clone());
+                let image = container.image.unwrap_or_else(|| "-".to_string());
+                let status = container
+                    .status
+                    .or_else(|| container.state.as_ref().map(|s| format!("{s:?}")))
+                    .unwrap_or_else(|| "running".to_string());
+                let port = first_upstream.map(|a| a.port()).unwrap_or(80);
+
+                let info = DiscoveredServiceInfo {
+                    container_id: short_id,
+                    container_name: name,
+                    image,
+                    domains: domains_for_container.clone(),
+                    port,
+                    upstream: first_upstream,
+                    status,
+                };
+
                 let mut lock = self.container_routes.write().await;
-                lock.insert(id, domains_for_container);
+                lock.insert(id.clone(), domains_for_container);
+
+                let mut s_lock = self.discovered_services.write().await;
+                s_lock.insert(id, info);
             }
         }
 
@@ -231,11 +280,12 @@ impl DockerDiscovery {
         container_id: &str,
     ) -> Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>> {
         let inspect = self.client.inspect_container(container_id, None).await?;
-        let labels = inspect.config.and_then(|c| c.labels).unwrap_or_default();
+        let labels = inspect.config.as_ref().and_then(|c| c.labels.clone()).unwrap_or_default();
         let routes = parse_docker_labels(&labels, &self.default_node_id, self.mesh_ip);
 
         let mut added_domains = Vec::new();
         if !routes.is_empty() {
+            let mut first_upstream = None;
             for (domain, route) in routes {
                 tracing::info!(
                     container_id = %container_id,
@@ -243,11 +293,46 @@ impl DockerDiscovery {
                     upstream = ?route.upstream,
                     "registering newly started container route"
                 );
+                if first_upstream.is_none() {
+                    first_upstream = route.upstream;
+                }
                 self.registry.insert(domain.clone(), route);
                 added_domains.push(domain);
             }
+            let short_id = container_id[..12.min(container_id.len())].to_string();
+            let name = inspect
+                .name
+                .as_deref()
+                .map(|n| n.trim_start_matches('/').to_string())
+                .unwrap_or_else(|| short_id.clone());
+            let image = inspect
+                .config
+                .as_ref()
+                .and_then(|c| c.image.clone())
+                .unwrap_or_else(|| "-".to_string());
+            let status = inspect
+                .state
+                .as_ref()
+                .and_then(|s| s.status.as_ref())
+                .map(|st| format!("{:?}", st))
+                .unwrap_or_else(|| "running".to_string());
+            let port = first_upstream.map(|a| a.port()).unwrap_or(80);
+
+            let info = DiscoveredServiceInfo {
+                container_id: short_id,
+                container_name: name,
+                image,
+                domains: added_domains.clone(),
+                port,
+                upstream: first_upstream,
+                status,
+            };
+
             let mut lock = self.container_routes.write().await;
             lock.insert(container_id.to_string(), added_domains.clone());
+
+            let mut s_lock = self.discovered_services.write().await;
+            s_lock.insert(container_id.to_string(), info);
         }
 
         Ok(added_domains)
@@ -255,6 +340,10 @@ impl DockerDiscovery {
 
     /// Handles a container `stop` or `die` event by removing its routes from the registry.
     pub async fn handle_container_stop(&self, container_id: &str) -> Vec<String> {
+        {
+            let mut s_lock = self.discovered_services.write().await;
+            s_lock.remove(container_id);
+        }
         let mut lock = self.container_routes.write().await;
         let Some(domains) = lock.remove(container_id) else {
             return Vec::new();
@@ -270,6 +359,72 @@ impl DockerDiscovery {
         }
 
         domains
+    }
+
+    /// Directly inspects Docker containers without mutating a registry or starting an event stream.
+    pub async fn scan_docker(
+        socket_path: &str,
+        default_node_id: &str,
+        mesh_ip: Option<IpAddr>,
+    ) -> Result<Vec<DiscoveredServiceInfo>, Box<dyn std::error::Error + Send + Sync>> {
+        let client = if socket_path == "/var/run/docker.sock" {
+            bollard::Docker::connect_with_socket_defaults()
+                .or_else(|_| bollard::Docker::connect_with_unix(socket_path, 120, bollard::API_DEFAULT_VERSION))?
+        } else {
+            bollard::Docker::connect_with_unix(socket_path, 120, bollard::API_DEFAULT_VERSION)?
+        };
+
+        let options = bollard::query_parameters::ListContainersOptions {
+            all: false,
+            ..Default::default()
+        };
+
+        let containers = client.list_containers(Some(options)).await?;
+        let mut services = Vec::new();
+
+        for container in containers {
+            let Some(id) = container.id else { continue };
+            let labels = container.labels.unwrap_or_default();
+            let routes = parse_docker_labels(&labels, default_node_id, mesh_ip);
+            if routes.is_empty() {
+                continue;
+            }
+
+            let mut domains = Vec::new();
+            let mut first_upstream = None;
+            for (domain, route) in routes {
+                if first_upstream.is_none() {
+                    first_upstream = route.upstream;
+                }
+                domains.push(domain);
+            }
+
+            let short_id = id[..12.min(id.len())].to_string();
+            let name = container
+                .names
+                .as_ref()
+                .and_then(|names| names.first())
+                .map(|n| n.trim_start_matches('/').to_string())
+                .unwrap_or_else(|| short_id.clone());
+            let image = container.image.unwrap_or_else(|| "-".to_string());
+            let status = container
+                .status
+                .or_else(|| container.state.as_ref().map(|s| format!("{s:?}")))
+                .unwrap_or_else(|| "running".to_string());
+            let port = first_upstream.map(|a| a.port()).unwrap_or(80);
+
+            services.push(DiscoveredServiceInfo {
+                container_id: short_id,
+                container_name: name,
+                image,
+                domains,
+                port,
+                upstream: first_upstream,
+                status,
+            });
+        }
+
+        Ok(services)
     }
 
     /// Runs the Docker discovery loop with a simple broadcast receiver.

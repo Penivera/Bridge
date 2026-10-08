@@ -322,6 +322,7 @@ dependencies = [
  "rand 0.10.3",
  "registry",
  "reqwest",
+ "ring",
  "rpassword",
  "sentry",
  "sentry-tracing",

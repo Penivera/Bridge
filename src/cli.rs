@@ -144,6 +144,58 @@ pub enum Commands {
         #[command(subcommand)]
         command: UserCommands,
     },
+    /// View services auto-discovered by Docker
+    Discovery {
+        #[command(subcommand)]
+        command: Option<DiscoveryCommands>,
+        #[arg(short, long, default_value = "/tmp/bridge.sock")]
+        socket: PathBuf,
+        #[arg(long, default_value = "/var/run/docker.sock")]
+        docker_socket: PathBuf,
+        /// Force direct Docker scan without querying running daemon
+        #[arg(long)]
+        local: bool,
+        /// Output discovered services as JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Check for or install Bridge updates from GitHub releases
+    Update {
+        /// Only check for updates without installing
+        #[arg(short, long)]
+        check: bool,
+        /// Force reinstallation even if already up to date
+        #[arg(short, long)]
+        force: bool,
+        /// Install a specific release tag (e.g. v0.1.0-8f7998b5)
+        #[arg(short, long)]
+        version: Option<String>,
+        /// GitHub repository to fetch releases from
+        #[arg(long, default_value = crate::updater::DEFAULT_REPO)]
+        repo: String,
+    },
+}
+
+#[derive(Subcommand, Debug, Clone)]
+pub enum DiscoveryCommands {
+    /// List currently discovered Docker services (default)
+    List {
+        #[arg(short, long, default_value = "/tmp/bridge.sock")]
+        socket: PathBuf,
+        #[arg(long, default_value = "/var/run/docker.sock")]
+        docker_socket: PathBuf,
+        #[arg(long)]
+        local: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Directly scan local Docker containers for routing labels
+    Scan {
+        #[arg(long, default_value = "/var/run/docker.sock")]
+        docker_socket: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand, Debug, Clone)]
@@ -891,6 +943,99 @@ pub async fn execute_command(
                 Ok(CommandOutcome::Exit)
             }
         },
+        Commands::Discovery {
+            command,
+            socket,
+            docker_socket,
+            local,
+            json,
+        } => {
+            let cmd = command.unwrap_or(DiscoveryCommands::List {
+                socket,
+                docker_socket,
+                local,
+                json,
+            });
+            match cmd {
+                DiscoveryCommands::List {
+                    socket,
+                    docker_socket,
+                    local,
+                    json,
+                } => {
+                    let mut services = None;
+                    if !local {
+                        if let Ok(mut client) = IpcClient::connect(&socket).await {
+                            if let Ok(ipc_services) = client.list_discovery().await {
+                                services = Some(ipc_services);
+                            }
+                        }
+                    }
+
+                    let services = match services {
+                        Some(s) => s,
+                        None => {
+                            let sock_str = docker_socket.to_str().unwrap_or("/var/run/docker.sock");
+                            crate::discovery::DockerDiscovery::scan_docker(sock_str, "local", None)
+                                .await
+                                .map_err(|e| format!("Failed to connect to daemon at '{}' and Docker at '{}': {e}", socket.display(), sock_str))?
+                        }
+                    };
+
+                    print_discovered_services(&services, json);
+                    Ok(CommandOutcome::Exit)
+                }
+                DiscoveryCommands::Scan {
+                    docker_socket,
+                    json,
+                } => {
+                    let sock_str = docker_socket.to_str().unwrap_or("/var/run/docker.sock");
+                    let services = crate::discovery::DockerDiscovery::scan_docker(sock_str, "local", None)
+                        .await
+                        .map_err(|e| format!("Docker scan failed at '{sock_str}': {e}"))?;
+                    print_discovered_services(&services, json);
+                    Ok(CommandOutcome::Exit)
+                }
+            }
+        }
+        Commands::Update {
+            check,
+            force,
+            version,
+            repo,
+        } => {
+            let client = reqwest::Client::new();
+            if check {
+                match crate::updater::check_update(&client, &repo, version.as_deref()).await {
+                    Ok(info) => {
+                        println!("Current version: v{}", info.current_version);
+                        println!("Target platform: {}", info.target_platform);
+                        println!("Latest release:  {}", info.latest_tag);
+                        if info.is_newer {
+                            println!("\nUpdate available! Run 'bridge update' to install.");
+                        } else {
+                            println!("\nBridge is up to date.");
+                        }
+                        Ok(CommandOutcome::Exit)
+                    }
+                    Err(err) => {
+                        eprintln!("Error checking for updates: {err}");
+                        std::process::exit(1);
+                    }
+                }
+            } else {
+                match crate::updater::perform_update(&client, &repo, version.as_deref(), force).await {
+                    Ok(msg) => {
+                        println!("{msg}");
+                        Ok(CommandOutcome::Exit)
+                    }
+                    Err(err) => {
+                        eprintln!("Error updating bridge: {err}");
+                        std::process::exit(1);
+                    }
+                }
+            }
+        }
         Commands::Run { config: run_cfg } => {
             let selected_config = run_cfg.or_else(|| default_config.map(PathBuf::from));
             Ok(CommandOutcome::ContinueWithConfig(selected_config))
@@ -965,4 +1110,45 @@ fn print_cluster_nodes(status: &IpcData) -> Result<(), Box<dyn std::error::Error
         println!("{}", serde_json::to_string_pretty(status)?);
     }
     Ok(())
+}
+
+pub fn print_discovered_services(services: &[crate::ipc::DiscoveredServiceInfo], json: bool) {
+    if json {
+        println!("{}", serde_json::to_string_pretty(services).unwrap_or_else(|_| "[]".to_string()));
+        return;
+    }
+
+    if services.is_empty() {
+        println!("No auto-discovered Docker services found.");
+        println!();
+        println!("Ensure containers are running with supported routing labels:");
+        println!("  - Traefik:  traefik.http.routers.<name>.rule=Host(`example.com`)");
+        println!("  - Coolify:  coolify.domain=example.com");
+        println!("  - Bridge:   bridge.domain=example.com");
+        println!("  - Caddy:    caddy_0=example.com");
+        return;
+    }
+
+    println!("{:<14} {:<18} {:<20} {:<32} {:<18} {:<10}", "CONTAINER ID", "NAME", "IMAGE", "DOMAINS", "UPSTREAM", "STATUS");
+    println!("{:-<116}", "");
+    for s in services {
+        let domains = s.domains.join(", ");
+        let upstream = s.upstream.map(|a| a.to_string()).unwrap_or_else(|| format!("127.0.0.1:{}", s.port));
+        let short_image = if s.image.len() > 19 {
+            format!("{}...", &s.image[..16])
+        } else {
+            s.image.clone()
+        };
+        let short_name = if s.container_name.len() > 17 {
+            format!("{}...", &s.container_name[..14])
+        } else {
+            s.container_name.clone()
+        };
+        let short_domains = if domains.len() > 31 {
+            format!("{}...", &domains[..28])
+        } else {
+            domains
+        };
+        println!("{:<14} {:<18} {:<20} {:<32} {:<18} {:<10}", s.container_id, short_name, short_image, short_domains, upstream, s.status);
+    }
 }

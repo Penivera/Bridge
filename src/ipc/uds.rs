@@ -72,6 +72,7 @@ pub enum IpcRequest {
     MeshSync,
     ProxyStatus,
     Health,
+    ListDiscovery,
 }
 
 /// Outbound control responses sent back over the Unix domain socket.
@@ -212,9 +213,24 @@ pub enum IpcData {
         synced_peers: usize,
         message: String,
     },
+    DiscoveredServices {
+        services: Vec<DiscoveredServiceInfo>,
+    },
     Message {
         message: String,
     },
+}
+
+/// Serializable representation of an auto-discovered Docker container service.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DiscoveredServiceInfo {
+    pub container_id: String,
+    pub container_name: String,
+    pub image: String,
+    pub domains: Vec<String>,
+    pub port: u16,
+    pub upstream: Option<SocketAddr>,
+    pub status: String,
 }
 
 /// Mesh peer info returned over IPC.
@@ -296,6 +312,7 @@ pub struct IpcServer {
     auth: Arc<RwLock<Option<Arc<crate::auth::AuthManager>>>>,
     config_json: Arc<RwLock<Option<serde_json::Value>>>,
     config_path: Arc<RwLock<Option<PathBuf>>>,
+    discovery_services: Arc<RwLock<Option<Arc<RwLock<HashMap<String, DiscoveredServiceInfo>>>>>>,
 }
 
 impl IpcServer {
@@ -315,6 +332,7 @@ impl IpcServer {
             auth: Arc::new(RwLock::new(None)),
             config_json: Arc::new(RwLock::new(None)),
             config_path: Arc::new(RwLock::new(None)),
+            discovery_services: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -341,6 +359,19 @@ impl IpcServer {
     /// Returns a shared handle for the configuration file path.
     pub fn config_path_handle(&self) -> Arc<RwLock<Option<PathBuf>>> {
         self.config_path.clone()
+    }
+
+    /// Returns a shared handle to wire discovered services once initialized.
+    pub fn discovery_handle(&self) -> Arc<RwLock<Option<Arc<RwLock<HashMap<String, DiscoveredServiceInfo>>>>>> {
+        self.discovery_services.clone()
+    }
+
+    /// Sets the shared handle for auto-discovered services.
+    pub fn set_discovery_handle(
+        &mut self,
+        handle: Arc<RwLock<HashMap<String, DiscoveredServiceInfo>>>,
+    ) {
+        self.discovery_services = Arc::new(RwLock::new(Some(handle)));
     }
 
     /// Replaces the configuration view/path slots with shared ones (used by
@@ -415,6 +446,7 @@ impl IpcServer {
         let auth = self.auth.clone();
         let config_json = self.config_json.clone();
         let config_path = self.config_path.clone();
+        let discovery_services = self.discovery_services.clone();
 
         loop {
             tokio::select! {
@@ -433,8 +465,9 @@ impl IpcServer {
                                 config_json: config_json.clone(),
                                 config_path: config_path.clone(),
                             };
+                            let disc_slot = discovery_services.clone();
                             tokio::spawn(async move {
-                                if let Err(err) = handle_ipc_connection(stream, reg, proxy_mode, start_time, c_slot, d_slot, user_state).await {
+                                if let Err(err) = handle_ipc_connection(stream, reg, proxy_mode, start_time, c_slot, d_slot, user_state, disc_slot).await {
                                     tracing::debug!(%err, "IPC client connection closed with error");
                                 }
                             });
@@ -473,6 +506,7 @@ async fn handle_ipc_connection(
     cluster_slot: Arc<RwLock<Option<Arc<cluster::ClusterController>>>>,
     duplicator_slot: Arc<RwLock<Option<Arc<dyn FailoverTrigger>>>>,
     user_state: UserManagementState,
+    discovery_slot: Arc<RwLock<Option<Arc<RwLock<HashMap<String, DiscoveredServiceInfo>>>>>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let (reader, mut writer) = stream.into_split();
     let mut lines = BufReader::new(reader).lines();
@@ -539,6 +573,16 @@ async fn handle_ipc_connection(
                     }
                     IpcResponse::Ok {
                         data: IpcData::Routes { routes },
+                    }
+                }
+                IpcRequest::ListDiscovery => {
+                    let disc_guard = discovery_slot.read().await;
+                    let services = match disc_guard.as_ref() {
+                        Some(handle) => handle.read().await.values().cloned().collect(),
+                        None => Vec::new(),
+                    };
+                    IpcResponse::Ok {
+                        data: IpcData::DiscoveredServices { services },
                     }
                 }
                 IpcRequest::AddRoute {
@@ -1671,6 +1715,19 @@ impl IpcClient {
         match self.send(&IpcRequest::MeshSync).await? {
             IpcResponse::Ok { data } => Ok(data),
             IpcResponse::Error { message } => Err(message.into()),
+        }
+    }
+
+    /// Lists auto-discovered Docker container services.
+    pub async fn list_discovery(
+        &mut self,
+    ) -> Result<Vec<DiscoveredServiceInfo>, Box<dyn std::error::Error>> {
+        match self.send(&IpcRequest::ListDiscovery).await? {
+            IpcResponse::Ok {
+                data: IpcData::DiscoveredServices { services },
+            } => Ok(services),
+            IpcResponse::Error { message } => Err(message.into()),
+            other => Err(format!("unexpected response: {:?}", other).into()),
         }
     }
 }

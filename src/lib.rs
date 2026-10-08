@@ -9,6 +9,7 @@ pub mod discovery;
 pub mod failover;
 pub mod handoff;
 pub mod ipc;
+pub mod updater;
 pub use mesh;
 pub use proxy;
 pub use registry;

@@ -161,6 +161,8 @@ Bridge includes a robust administrative CLI for operational control over IPC:
 | `bridge routes prune` | Routing | Prune dead or orphaned routes targeting evicted nodes. |
 | `bridge add-route <domain> <upstream>` | Routing | Dynamically add an ingress route into the daemon registry. |
 | `bridge remove-route <domain>` | Routing | Remove an ingress route dynamically. |
+| `bridge discovery` | Discovery | View auto-discovered Docker containers, labels, and target routes. |
+| `bridge update` | Maintenance | In-place auto-update from verified GitHub releases with SHA256 validation. |
 | `bridge config show` | Config | Display the currently active configuration in TOML format. |
 | `bridge config reload` | Config | Hot-reload the configuration file without restarting the daemon. |
 

@@ -31,6 +31,7 @@ pub async fn run(config_path: Option<&Path>) -> Result<(), Box<dyn std::error::E
     let mut coordinator = proxy::ShutdownCoordinator::new(Some(std::path::PathBuf::from("bridge-state.json")));
 
     // 4. Register and spawn Docker Auto-Discovery if enabled
+    let discovery_services_store = Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new()));
     if config.discovery.enabled {
         let (discovery_rx, discovery_ack) = coordinator.register_subsystem("docker_discovery");
         let disc_reg = registry.clone();
@@ -41,10 +42,12 @@ pub async fn run(config_path: Option<&Path>) -> Result<(), Box<dyn std::error::E
             .unwrap_or_else(|| config.discovery.default_node_id.clone());
         let discovery_mesh_ip = config.node.as_ref().map(|n| n.mesh_ip);
         let socket_path = config.discovery.docker_socket.clone();
+        let store = discovery_services_store.clone();
 
         tokio::spawn(async move {
             match crate::discovery::DockerDiscovery::connect_socket(&socket_path, disc_reg, default_node_id) {
                 Ok(discovery) => {
+                    let discovery = discovery.with_services_store(store);
                     let discovery = match discovery_mesh_ip {
                         Some(mesh_ip) => discovery.with_mesh_ip(mesh_ip),
                         None => discovery,
@@ -76,6 +79,7 @@ pub async fn run(config_path: Option<&Path>) -> Result<(), Box<dyn std::error::E
             registry.clone(),
             proxy_config.mode,
         );
+        ipc_server.set_discovery_handle(discovery_services_store.clone());
         let cluster_slot = ipc_server.cluster_handle();
         let duplicator_slot = ipc_server.duplicator_handle();
         *ipc_server.auth_handle().write().await = Some(auth_manager.clone());

@@ -64,6 +64,7 @@ axum = { version = "0.8", features = ["ws"], optional = true }
 tower-http = { version = "0.6", features = ["timeout"], optional = true }
 argon2 = "0.6.0"
 rpassword = "7.5.4"
+ring = "0.17"
 
 [features]
 default = ["dashboard"]
