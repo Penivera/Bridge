@@ -363,9 +363,12 @@ impl ClusterController {
         );
 
         // 1. Peer table
-        {
+        let is_new = {
             let mut lock = self.peers.write().await;
-            lock.insert(peer.node_id.clone(), peer.clone());
+            lock.insert(peer.node_id.clone(), peer.clone()).is_none()
+        };
+        if is_new {
+            let _ = self.membership_tx.send(MemberEvent::Up(peer.clone()));
         }
         {
             let count = self.peers.read().await.len() + 1;

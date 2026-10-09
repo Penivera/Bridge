@@ -195,10 +195,13 @@ pub struct NodeConfig {
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct SeedConfig {
-    pub id: String,
+    #[serde(default)]
+    pub id: Option<String>,
     pub endpoint: std::net::SocketAddr,
-    pub public_key: String,
-    pub mesh_ip: std::net::IpAddr,
+    #[serde(default)]
+    pub public_key: Option<String>,
+    #[serde(default)]
+    pub mesh_ip: Option<std::net::IpAddr>,
 }
 
 #[derive(Clone, Debug, SmartDefault, Deserialize, Serialize, PartialEq)]
@@ -377,5 +380,288 @@ impl Config {
 
     pub fn https_addr(&self) -> std::net::SocketAddr {
         self.proxy.https_addr()
+    }
+
+    /// Discovers the active configuration file path if one exists on disk.
+    pub fn discover_config_path(cli_override: Option<&std::path::Path>) -> Option<std::path::PathBuf> {
+        if let Some(path) = cli_override {
+            return Some(path.to_path_buf());
+        }
+
+        if let Ok(env_path) = std::env::var("BRIDGE_CONFIG")
+            && !env_path.trim().is_empty()
+        {
+            let p = std::path::PathBuf::from(env_path);
+            if p.exists() {
+                return Some(p);
+            }
+        }
+
+        let candidates = [
+            std::path::PathBuf::from("bridge.toml"),
+            std::path::PathBuf::from("bridge.yaml"),
+            std::path::PathBuf::from("bridge.yml"),
+            std::path::PathBuf::from("/etc/bridge/bridge.toml"),
+            std::path::PathBuf::from("/etc/bridge/bridge.yaml"),
+            std::path::PathBuf::from("/etc/bridge/bridge.yml"),
+        ];
+
+        for candidate in &candidates {
+            if candidate.exists() {
+                return Some(candidate.clone());
+            }
+        }
+        None
+    }
+
+    /// Automatically generates missing WireGuard Curve25519 keypairs and node defaults,
+    /// persisting them back to the configuration file on disk.
+    ///
+    /// Returns `(changed, generated_public_key)`.
+    pub fn auto_generate_missing_keys_and_save(
+        path: &std::path::Path,
+    ) -> Result<(bool, Option<String>), Box<dyn std::error::Error>> {
+        if !path.exists() {
+            return Ok((false, None));
+        }
+        let raw = std::fs::read_to_string(path)?;
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+
+        let mut changed = false;
+        let mut generated_pub_key = None;
+
+        if ext == "yaml" || ext == "yml" {
+            let mut doc: serde_yaml::Value = serde_yaml::from_str(&raw)?;
+            if let Some(node) = doc.get_mut("node").and_then(|v| v.as_mapping_mut()) {
+                let has_priv = node
+                    .get(&serde_yaml::Value::String("private_key".into()))
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.trim().is_empty())
+                    .map(|s| s.to_string());
+                let has_pub = node
+                    .get(&serde_yaml::Value::String("public_key".into()))
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.trim().is_empty())
+                    .map(|s| s.to_string());
+
+                match (has_priv, has_pub) {
+                    (None, _) => {
+                        let (priv_k, pub_k) = mesh::generate_wireguard_keypair();
+                        node.insert(
+                            serde_yaml::Value::String("private_key".into()),
+                            serde_yaml::Value::String(priv_k),
+                        );
+                        node.insert(
+                            serde_yaml::Value::String("public_key".into()),
+                            serde_yaml::Value::String(pub_k.clone()),
+                        );
+                        generated_pub_key = Some(pub_k);
+                        changed = true;
+                    }
+                    (Some(priv_k), None) => {
+                        if let Ok(pub_k) = mesh::derive_wireguard_public_key(&priv_k) {
+                            node.insert(
+                                serde_yaml::Value::String("public_key".into()),
+                                serde_yaml::Value::String(pub_k.clone()),
+                            );
+                            generated_pub_key = Some(pub_k);
+                            changed = true;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            if changed {
+                let serialized = serde_yaml::to_string(&doc)?;
+                Self::atomic_write_file(path, &serialized)?;
+            }
+        } else {
+            let mut doc: toml::Value = toml::from_str(&raw)?;
+            if let Some(node) = doc.get_mut("node").and_then(|v| v.as_table_mut()) {
+                let has_priv = node
+                    .get("private_key")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.trim().is_empty())
+                    .map(|s| s.to_string());
+                let has_pub = node
+                    .get("public_key")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.trim().is_empty())
+                    .map(|s| s.to_string());
+
+                match (has_priv, has_pub) {
+                    (None, _) => {
+                        let (priv_k, pub_k) = mesh::generate_wireguard_keypair();
+                        node.insert("private_key".into(), toml::Value::String(priv_k));
+                        node.insert("public_key".into(), toml::Value::String(pub_k.clone()));
+                        generated_pub_key = Some(pub_k);
+                        changed = true;
+                    }
+                    (Some(priv_k), None) => {
+                        if let Ok(pub_k) = mesh::derive_wireguard_public_key(&priv_k) {
+                            node.insert("public_key".into(), toml::Value::String(pub_k.clone()));
+                            generated_pub_key = Some(pub_k);
+                            changed = true;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            if changed {
+                let serialized = toml::to_string_pretty(&doc)?;
+                Self::atomic_write_file(path, &serialized)?;
+            }
+        }
+        Ok((changed, generated_pub_key))
+    }
+
+    /// Automatically updates the configuration file with a newly discovered or updated peer,
+    /// recording it as a seed node for persistent future bootstraps.
+    pub fn persist_peer_to_config_file(
+        path: &std::path::Path,
+        peer: &cluster::PeerNode,
+    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        if !path.exists() {
+            return Ok(false);
+        }
+        let raw = std::fs::read_to_string(path)?;
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+
+        if ext == "yaml" || ext == "yml" {
+            let mut doc: serde_yaml::Value = serde_yaml::from_str(&raw)?;
+            if let Some(local_id) = doc
+                .get("node")
+                .and_then(|n| n.get("id"))
+                .and_then(|v| v.as_str())
+            {
+                if local_id == peer.node_id {
+                    return Ok(false);
+                }
+            }
+            let map = doc
+                .as_mapping_mut()
+                .ok_or_else(|| "config root is not a mapping".to_string())?;
+            let seeds_key = serde_yaml::Value::String("seeds".into());
+            let seeds = map
+                .entry(seeds_key)
+                .or_insert_with(|| serde_yaml::Value::Sequence(Vec::new()))
+                .as_sequence_mut()
+                .ok_or_else(|| "seeds is not a sequence".to_string())?;
+
+            let mut matched = false;
+            for s in seeds.iter_mut() {
+                if let Some(s_map) = s.as_mapping_mut() {
+                    let id_val = s_map
+                        .get(&serde_yaml::Value::String("id".into()))
+                        .and_then(|v| v.as_str());
+                    let ep_val = s_map
+                        .get(&serde_yaml::Value::String("endpoint".into()))
+                        .and_then(|v| v.as_str());
+                    if id_val == Some(&peer.node_id) || ep_val == Some(&peer.endpoint.to_string()) {
+                        s_map.insert(
+                            serde_yaml::Value::String("id".into()),
+                            serde_yaml::Value::String(peer.node_id.clone()),
+                        );
+                        s_map.insert(
+                            serde_yaml::Value::String("endpoint".into()),
+                            serde_yaml::Value::String(peer.endpoint.to_string()),
+                        );
+                        s_map.insert(
+                            serde_yaml::Value::String("public_key".into()),
+                            serde_yaml::Value::String(peer.public_key.clone()),
+                        );
+                        s_map.insert(
+                            serde_yaml::Value::String("mesh_ip".into()),
+                            serde_yaml::Value::String(peer.mesh_ip.to_string()),
+                        );
+                        matched = true;
+                        break;
+                    }
+                }
+            }
+            if !matched {
+                let mut new_seed = serde_yaml::Mapping::new();
+                new_seed.insert(
+                    serde_yaml::Value::String("id".into()),
+                    serde_yaml::Value::String(peer.node_id.clone()),
+                );
+                new_seed.insert(
+                    serde_yaml::Value::String("endpoint".into()),
+                    serde_yaml::Value::String(peer.endpoint.to_string()),
+                );
+                new_seed.insert(
+                    serde_yaml::Value::String("public_key".into()),
+                    serde_yaml::Value::String(peer.public_key.clone()),
+                );
+                new_seed.insert(
+                    serde_yaml::Value::String("mesh_ip".into()),
+                    serde_yaml::Value::String(peer.mesh_ip.to_string()),
+                );
+                seeds.push(serde_yaml::Value::Mapping(new_seed));
+            }
+            let serialized = serde_yaml::to_string(&doc)?;
+            Self::atomic_write_file(path, &serialized)?;
+            Ok(true)
+        } else {
+            let mut doc: toml::Value = toml::from_str(&raw)?;
+            if let Some(local_id) = doc
+                .get("node")
+                .and_then(|n| n.get("id"))
+                .and_then(|v| v.as_str())
+            {
+                if local_id == peer.node_id {
+                    return Ok(false);
+                }
+            }
+            let root_tbl = doc
+                .as_table_mut()
+                .ok_or_else(|| "config root is not a table".to_string())?;
+            let seeds = root_tbl
+                .entry("seeds")
+                .or_insert_with(|| toml::Value::Array(Vec::new()))
+                .as_array_mut()
+                .ok_or_else(|| "seeds is not an array".to_string())?;
+
+            let mut matched = false;
+            for s in seeds.iter_mut() {
+                if let Some(s_tbl) = s.as_table_mut() {
+                    let id_val = s_tbl.get("id").and_then(|v| v.as_str());
+                    let ep_val = s_tbl.get("endpoint").and_then(|v| v.as_str());
+                    if id_val == Some(&peer.node_id) || ep_val == Some(&peer.endpoint.to_string()) {
+                        s_tbl.insert("id".into(), toml::Value::String(peer.node_id.clone()));
+                        s_tbl.insert("endpoint".into(), toml::Value::String(peer.endpoint.to_string()));
+                        s_tbl.insert("public_key".into(), toml::Value::String(peer.public_key.clone()));
+                        s_tbl.insert("mesh_ip".into(), toml::Value::String(peer.mesh_ip.to_string()));
+                        matched = true;
+                        break;
+                    }
+                }
+            }
+            if !matched {
+                let mut new_seed = toml::map::Map::new();
+                new_seed.insert("id".into(), toml::Value::String(peer.node_id.clone()));
+                new_seed.insert("endpoint".into(), toml::Value::String(peer.endpoint.to_string()));
+                new_seed.insert("public_key".into(), toml::Value::String(peer.public_key.clone()));
+                new_seed.insert("mesh_ip".into(), toml::Value::String(peer.mesh_ip.to_string()));
+                seeds.push(toml::Value::Table(new_seed));
+            }
+            let serialized = toml::to_string_pretty(&doc)?;
+            Self::atomic_write_file(path, &serialized)?;
+            Ok(true)
+        }
+    }
+
+    fn atomic_write_file(path: &std::path::Path, content: &str) -> std::io::Result<()> {
+        let tmp = path.with_extension("tmp");
+        std::fs::write(&tmp, content)?;
+        std::fs::rename(&tmp, path)
     }
 }

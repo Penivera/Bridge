@@ -30,4 +30,6 @@ GEMINI.md
 report_builder
 scratch/
 app-svr-03.toml
+app-svr-02.toml
 *.server.toml
+cluster-demo/

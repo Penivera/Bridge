@@ -50,6 +50,14 @@ pub fn generate_wireguard_keypair() -> (String, String) {
     (priv_b64, pub_b64)
 }
 
+/// Derives the RFC 7748 Curve25519 WireGuard public key from a base64-encoded private key.
+pub fn derive_wireguard_public_key(priv_key_b64: &str) -> Result<String, String> {
+    let arr = parse_wireguard_key(priv_key_b64)?;
+    let secret = StaticSecret::from(arr);
+    let public = PublicKey::from(&secret);
+    Ok(BASE64_STANDARD.encode(public.as_bytes()))
+}
+
 /// Validates that a string is a valid 32-byte base64 WireGuard key.
 pub fn parse_wireguard_key(key_b64: &str) -> Result<[u8; 32], String> {
     let bytes = BASE64_STANDARD

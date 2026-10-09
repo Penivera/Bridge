@@ -461,6 +461,23 @@ pub async fn execute_command(
                 Ok(CommandOutcome::Exit)
             }
             ConfigCommands::Validate { config } => {
+                let resolved_path = crate::core::config::Config::discover_config_path(
+                    config.as_deref().map(std::path::Path::new),
+                );
+                let mut auto_generated = false;
+                let mut pub_key_opt = None;
+
+                if let Some(ref p) = resolved_path {
+                    if p.exists() {
+                        if let Ok((changed, pk)) =
+                            crate::core::config::Config::auto_generate_missing_keys_and_save(p)
+                        {
+                            auto_generated = changed;
+                            pub_key_opt = pk;
+                        }
+                    }
+                }
+
                 match crate::core::config::Config::load_auto(config.as_deref()) {
                     Ok(cfg) => {
                         let path_str = cfg
@@ -469,11 +486,20 @@ pub async fn execute_command(
                             .map(|p| p.display().to_string())
                             .unwrap_or_else(|| "default".to_string());
                         println!("OK: Configuration at '{path_str}' is valid.");
+                        if auto_generated {
+                            println!("  Auto-generated missing WireGuard keypair and updated '{path_str}'.");
+                            if let Some(ref pk) = pub_key_opt {
+                                println!("  Generated Public Key: {}", pk);
+                            }
+                        }
                         println!("  Proxy Mode:    {:?}", cfg.proxy.mode);
                         println!("  Services:      {} registered", cfg.services.len());
                         println!("  Nodes:         {} registered", cfg.nodes.len());
                         if let Some(n) = &cfg.node {
                             println!("  Local Mesh IP: {} (ID: {})", n.mesh_ip, n.id);
+                            if let Some(pk) = &n.public_key {
+                                println!("  Public Key:    {}", pk);
+                            }
                         } else {
                             println!("  Cluster Mesh:  Standalone (no local node configured)");
                         }

@@ -165,7 +165,13 @@ pub async fn run(config_path: Option<&Path>) -> Result<(), Box<dyn std::error::E
         let (cluster_rx, cluster_ack) = coordinator.register_subsystem("cluster_mesh");
         let (priv_key, pub_key) = match (&node_cfg.private_key, &node_cfg.public_key) {
             (Some(privk), Some(pubk)) => (privk.clone(), pubk.clone()),
-            _ => crate::mesh::generate_wireguard_keypair(),
+            _ => {
+                let (k_priv, k_pub) = crate::mesh::generate_wireguard_keypair();
+                if let Some(ref path) = config.loaded_from {
+                    let _ = crate::core::config::Config::auto_generate_missing_keys_and_save(path);
+                }
+                (k_priv, k_pub)
+            }
         };
 
         let peer_node = crate::cluster::PeerNode::new(
@@ -301,6 +307,21 @@ pub async fn run(config_path: Option<&Path>) -> Result<(), Box<dyn std::error::E
                         tokio::spawn(async move {
                             if let Err(err) = duplicator.run_with_shutdown(member_rx, command_rx, failover_rx, Some(failover_ack)).await {
                                 tracing::warn!(%err, "service failover duplicator error");
+                            }
+                        });
+                    }
+                    // Auto-sync discovered peers to configuration file
+                    if let Some(config_path) = config.loaded_from.clone() {
+                        let mut member_rx = ctrl.subscribe_membership();
+                        tokio::spawn(async move {
+                            while let Ok(event) = member_rx.recv().await {
+                                if let cluster::MemberEvent::Up(peer) = event {
+                                    if let Err(e) = crate::core::config::Config::persist_peer_to_config_file(&config_path, &peer) {
+                                        tracing::warn!(%e, peer_id = %peer.node_id, "failed to persist discovered peer to config file");
+                                    } else {
+                                        tracing::info!(peer_id = %peer.node_id, path = %config_path.display(), "persisted discovered peer into config file seeds");
+                                    }
+                                }
                             }
                         });
                     }
