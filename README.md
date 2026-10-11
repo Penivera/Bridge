@@ -211,6 +211,14 @@ Comprehensive guides, configuration references, and operational architecture doc
 
 ---
 
+### Community & Security
+
+* [Contributing Guidelines](CONTRIBUTING.md)
+* [Accessibility Guidelines](ACCESSIBILITY.md)
+* [Security Policy](SECURITY.md)
+
+---
+
 ### License
 
 BRIDGE is dual-licensed under your choice of:
