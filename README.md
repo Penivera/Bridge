@@ -6,7 +6,7 @@
 
 [![Release](https://img.shields.io/github/v/release/Penivera/Bridge?color=blue&logo=github)](https://github.com/Penivera/Bridge/releases)
 [![Build Status](https://img.shields.io/github/actions/workflow/status/Penivera/Bridge/release.yml?branch=main&logo=github)](https://github.com/Penivera/Bridge/actions)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: MIT OR Apache-2.0](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 [![Documentation](https://img.shields.io/badge/Docs-bridgemesh.space-green?logo=cloudflare)](https://bridgemesh.space)
 [![Rust](https://img.shields.io/badge/Built_with-Rust_1.80+-orange?logo=rust)](https://www.rust-lang.org)
 
@@ -213,4 +213,7 @@ Comprehensive guides, configuration references, and operational architecture doc
 
 ### License
 
-BRIDGE is open-source software licensed under the [MIT License](LICENSE).
+BRIDGE is dual-licensed under your choice of:
+
+- [MIT License](LICENSE-MIT)
+- [Apache License 2.0](LICENSE-APACHE)
