@@ -1,0 +1,294 @@
+digraph BridgeUnifiedArchitecture {
+    rankdir=TB;
+    compound=true;
+    newrank=true;
+    nodesep=0.5;
+    ranksep=0.7;
+    fontname="Inter, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif";
+    fontsize=12;
+    
+    node [
+        fontname="Inter, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif",
+        fontsize=10,
+        shape=box,
+        style="filled,rounded",
+        fillcolor="#F8FAFC",
+        color="#CBD5E1",
+        penwidth=1.5,
+        margin="0.2,0.1"
+    ];
+    
+    edge [
+        fontname="Inter, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif",
+        fontsize=9,
+        color="#64748B",
+        penwidth=1.2,
+        arrowsize=0.8
+    ];
+
+    // ==========================================
+    // LAYER 1: EXTERNAL ACTORS & CLIENT INGRESS
+    // ==========================================
+    subgraph cluster_layer1 {
+        label = "1. External Actors & Public Entrypoints";
+        style = "filled,rounded";
+        fillcolor = "#F1F5F9";
+        color = "#94A3B8";
+        penwidth = 1.8;
+
+        Client [label="End-User Web Client\n(Browser / API Client)", fillcolor="#E2E8F0", shape=ellipse];
+        Operator [label="Fleet Operator / DevOps\n(Admin CLI / Dashboard)", fillcolor="#E2E8F0", shape=ellipse];
+        CloudflareEdge [label="Cloudflare Anycast Network\n(Public Entrypoint / CDN)", fillcolor="#FED7AA", color="#F97316"];
+    }
+
+    // ==========================================
+    // LAYER 2: INGRESS ENTRYPOINTS & INTERFACES
+    // ==========================================
+    subgraph cluster_layer2 {
+        label = "2. Entry Points & Network Listeners";
+        style = "filled,rounded";
+        fillcolor = "#F8FAFC";
+        color = "#94A3B8";
+
+        Port443 [label="TCP Listener :443\n(HTTPS SNI Peek)", fillcolor="#E0F2FE", color="#0284C7"];
+        Port80 [label="TCP Listener :80\n(HTTP Ingress / Redirect)", fillcolor="#E0F2FE", color="#0284C7"];
+        PortUdp [label="UDP Listeners\n(Generic L4 Services)", fillcolor="#E0F2FE", color="#0284C7"];
+        IpcSocket [label="Unix Domain Socket\n/tmp/bridge.sock", fillcolor="#FEF3C7", color="#D97706"];
+        DashboardHttp [label="Axum HTTP/WS Server\n127.0.0.1:9090", fillcolor="#FEF3C7", color="#D97706"];
+        TunnelProc [label="cloudflared Process\n(Tunnel Child Process)", fillcolor="#FFEDD5", color="#EA580C"];
+    }
+
+    // ==========================================
+    // LAYER 3: INGRESS PROXY & DISPATCH ENGINE
+    // ==========================================
+    subgraph cluster_layer3 {
+        label = "3. Ingress Proxy Engine (proxy crate)";
+        style = "filled,rounded";
+        fillcolor = "#EFF6FF";
+        color = "#3B82F6";
+        penwidth = 1.8;
+
+        WorkerPool [label="Elastic Worker Pool\n(Crossbeam Deque + Queue Dwell Monitor)", fillcolor="#DBEAFE", color="#2563EB"];
+        
+        subgraph cluster_handoff {
+            label = "Mode 2: Handoff Mode (L4 SNI Router)";
+            style = "filled,rounded";
+            fillcolor = "#FFFFFF";
+            color = "#60A5FA";
+
+            TlsPeek [label="TLS ClientHello Peek\n(parse_tls_sni / 0x16 0x03)"];
+            ProxyProto [label="PROXY v2 Injector\n(encode_proxy_v2)"];
+            StreamSplice [label="tokio::io::copy_bidirectional\n(Userspace TCP Pipe)"];
+        }
+
+        subgraph cluster_direct {
+            label = "Mode 1: Direct Mode (L7)";
+            style = "filled,rounded";
+            fillcolor = "#FFFFFF";
+            color = "#60A5FA";
+
+            HostNormalizer [label="Host Header Normalizer\n(lowercase & strip port)"];
+            HyperClient [label="Hyper HTTP Client Pool\n(Reused Keep-Alive Conn)"];
+        }
+
+        subgraph cluster_managed {
+            label = "Mode 3: Managed Mode (Control Plane)";
+            style = "filled,rounded";
+            fillcolor = "#FFFFFF";
+            color = "#60A5FA";
+
+            TraefikGen [label="generate_traefik_config\n(Exclude local routes)"];
+            TraefikSync [label="Atomic YAML Sync\nbridge.yaml"];
+        }
+
+        subgraph cluster_udp {
+            label = "L4 UDP & QUIC Subsystem";
+            style = "filled,rounded";
+            fillcolor = "#FFFFFF";
+            color = "#60A5FA";
+
+            UdpSession [label="UDP Session Manager\n(Ephemeral Sockets / 30s)"];
+            QuicRouter [label="QUIC DCID Router\n(RFC 9000 Parser)"];
+        }
+    }
+
+    // ==========================================
+    // LAYER 4: REGISTRY & STATE STORES
+    // ==========================================
+    subgraph cluster_layer4 {
+        label = "4. Domain Registry & Consistency Layer (registry crate)";
+        style = "filled,rounded";
+        fillcolor = "#F0FDF4";
+        color = "#22C55E";
+        penwidth = 1.8;
+
+        Registry [label="DomainRegistry\n(ArcSwap<HashMap<String, Route>>)", fillcolor="#DCFCE7", color="#16A34A"];
+        HashRing [label="HashRing\n(360 vnodes per node / SHA-256)", fillcolor="#DCFCE7", color="#16A34A"];
+        VectorClock [label="Lamport Vector Clocks\nRouteClock { origin_node, version }", fillcolor="#DCFCE7", color="#16A34A"];
+        Metrics [label="RouteMetrics\n(Requests/Errors/P50/P95)", fillcolor="#DCFCE7", color="#16A34A"];
+    }
+
+    // ==========================================
+    // LAYER 5: DISTRIBUTED CONSENSUS & MESH
+    // ==========================================
+    subgraph cluster_layer5 {
+        label = "5. Distributed Coordination & Mesh Layer (cluster & mesh crates)";
+        style = "filled,rounded";
+        fillcolor = "#FAF5FF";
+        color = "#A855F7";
+        penwidth = 1.8;
+
+        ClusterSocket [label="Raw UDP Socket :51820\n(BRDG Wire Protocol v1)", fillcolor="#F3E8FF", color="#9333EA"];
+        
+        subgraph cluster_foca {
+            label = "SWIM Failure Detection (foca)";
+            style = "filled,rounded";
+            fillcolor = "#FFFFFF";
+            color = "#C084FC";
+
+            FocaEngine [label="Foca SWIM Engine\n(Probe 500ms / Suspect 1000ms / Purge 2s)"];
+        }
+
+        subgraph cluster_election {
+            label = "Bully Leader Election";
+            style = "filled,rounded";
+            fillcolor = "#FFFFFF";
+            color = "#C084FC";
+
+            BullyEngine [label="Bully Coordinator\nRank = (priority, node_id)\nQuorum = (total / 2) + 1"];
+            LeaderWatch [label="Leadership Watch Channel\nwatch::Sender<Option<PeerNode>>"];
+        }
+
+        subgraph cluster_wireguard {
+            label = "WireGuard L3 Mesh (mesh crate)";
+            style = "filled,rounded";
+            fillcolor = "#FFFFFF";
+            color = "#C084FC";
+
+            WgDevice [label="WireGuardDevice (wg0)\n(10.8.0.x / ChaCha20-Poly1305)"];
+            WgApi [label="WGApi Netlink Interface\n(defguard_wireguard_rs)"];
+        }
+
+        subgraph cluster_gossip {
+            label = "State Gossip";
+            style = "filled,rounded";
+            fillcolor = "#FFFFFF";
+            color = "#C084FC";
+
+            RouteGossip [label="Push-Pull RouteDigest Gossip\n(Every 500ms / Fanout 3)"];
+        }
+    }
+
+    // ==========================================
+    // LAYER 6: WORKLOAD FAILOVER ORCHESTRATION
+    // ==========================================
+    subgraph cluster_layer6 {
+        label = "6. Workload Failover & Autonomic Recovery (src/failover)";
+        style = "filled,rounded";
+        fillcolor = "#FFF1F2";
+        color = "#F43F5E";
+        penwidth = 1.8;
+
+        Duplicator [label="WorkloadDuplicator\n(Listens to MemberDown)", fillcolor="#FFE4E6", color="#E11D48"];
+        FailbackMgr [label="Failback Manager\n(Preemptive / NonPreemptive / Manual)", fillcolor="#FFE4E6", color="#E11D48"];
+    }
+
+    // ==========================================
+    // LAYER 7: HOST INTEGRATIONS & LOCAL RUNTIMES
+    // ==========================================
+    subgraph cluster_layer7 {
+        label = "7. Host Runtimes & Persistence Boundaries";
+        style = "filled,rounded";
+        fillcolor = "#F1F5F9";
+        color = "#64748B";
+
+        DockerEngine [label="Docker Engine Daemon\n/var/run/docker.sock", fillcolor="#E2E8F0"];
+        DockerDisc [label="DockerDiscovery Watcher\n(traefik.http.routers.* labels)", fillcolor="#E2E8F0"];
+        CoolifyTraefik [label="Coolify Traefik Container\n(Host Ports :80, :443)", fillcolor="#E2E8F0"];
+        AppContainers [label="Application Containers\n(Docker Services)", fillcolor="#E2E8F0"];
+        CloudflareDns [label="Cloudflare DNS API v4\n(REST API A-Record Updates)", fillcolor="#FED7AA", color="#F97316"];
+        StateFile [label="bridge-state.json\n(Shutdown Checkpoint)", fillcolor="#E2E8F0"];
+        ConfigFile [label="/etc/bridge/bridge.toml\n(Atomic Peer & Key Persistence)", fillcolor="#E2E8F0"];
+    }
+
+    // ==========================================
+    // CONNECTIONS & INTERACTIONS
+    // ==========================================
+    
+    // Ingress Flow
+    Client -> Port443 [label="HTTPS :443"];
+    Client -> Port80 [label="HTTP :80"];
+    Client -> PortUdp [label="UDP datagrams"];
+    CloudflareEdge -> TunnelProc [label="Cloudflare Tunnel"];
+    TunnelProc -> Port443 [label="Local Forward"];
+    Operator -> IpcSocket [label="CLI commands"];
+    Operator -> DashboardHttp [label="Web UI :9090"];
+
+    Port443 -> WorkerPool [label="Accept TCP"];
+    Port80 -> WorkerPool [label="Accept TCP"];
+    PortUdp -> UdpSession [label="Recv UDP"];
+
+    // Worker Pool Dispatch
+    WorkerPool -> TlsPeek [label="Handoff Mode"];
+    WorkerPool -> HostNormalizer [label="Direct Mode"];
+
+    // Handoff Mode Flow
+    TlsPeek -> Registry [label="Lookup SNI"];
+    Registry -> HashRing [label="Multi-Target"];
+    HashRing -> ProxyProto [label="Sticky Node"];
+    ProxyProto -> StreamSplice;
+    StreamSplice -> WgDevice [label="L4 Mesh Stream"];
+    StreamSplice -> CoolifyTraefik [label="Local Stream"];
+    CoolifyTraefik -> AppContainers [label="HTTP Proxy"];
+
+    // Direct Mode Flow
+    HostNormalizer -> Registry [label="Lookup Host"];
+    Registry -> HyperClient [label="Target Address"];
+    HyperClient -> AppContainers [label="Proxied HTTP"];
+
+    // Managed Mode Flow
+    Registry -> TraefikGen [label="Route Snapshot"];
+    TraefikGen -> TraefikSync [label="Dynamic YAML"];
+    TraefikSync -> CoolifyTraefik [label="File Provider Reload"];
+
+    // UDP & QUIC Flow
+    UdpSession -> QuicRouter;
+    QuicRouter -> WgDevice [label="L4 UDP Tunnel"];
+
+    // Cluster & Consensus Flow
+    ClusterSocket -> FocaEngine [label="SWIM Payloads"];
+    ClusterSocket -> BullyEngine [label="Election / Acks"];
+    ClusterSocket -> RouteGossip [label="RouteDigest / Sync"];
+
+    FocaEngine -> BullyEngine [label="MemberEvent::Down"];
+    FocaEngine -> Duplicator [label="MemberEvent::Down"];
+    FocaEngine -> ConfigFile [label="MemberEvent::Up\n(Persist Seeds)"];
+
+    BullyEngine -> LeaderWatch [label="Quorum Reached"];
+    LeaderWatch -> CloudflareDns [label="Leader Promotion\n(Sync DNS)"];
+    LeaderWatch -> TunnelProc [label="Leader Promotion\n(Start Tunnel)"];
+    LeaderWatch -> Duplicator [label="Leader Status"];
+    LeaderWatch -> Registry [label="Dashboard Ingress Route"];
+
+    RouteGossip -> VectorClock [label="Compare Clocks"];
+    RouteGossip -> Registry [label="RouteSync Pull/Push"];
+
+    // Failover Flow
+    Duplicator -> DockerEngine [label="Spawn Container"];
+    Duplicator -> Registry [label="Update Failover Route"];
+    Duplicator -> FailbackMgr [label="Member Recovered"];
+    FailbackMgr -> DockerEngine [label="Stop Container"];
+
+    // Host Integrations
+    DockerDisc -> DockerEngine [label="Stream Events"];
+    DockerDisc -> Registry [label="Register Discovered"];
+    WgDevice -> WgApi -> WgDevice;
+
+    IpcSocket -> Registry;
+    IpcSocket -> BullyEngine;
+    DashboardHttp -> Registry;
+    DashboardHttp -> Metrics;
+    DashboardHttp -> BullyEngine;
+
+    Registry -> StateFile [label="Shutdown Snapshot", style=dashed];
+}
